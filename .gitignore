@@ -12,5 +12,8 @@ secops-squad.config.json
 # SecOps customer environment data (discovery-log contains environment-specific facts)
 # Keep .secops/ templates committed; .gitignore the discovery log that accumulates runtime data
 .secops/discovery-log.yaml
+# Foundry: ignore the generated deployment config (contains tenant-specific resource names).
+# Ship .secops/foundry.yaml.example as the template; the deploy script writes foundry.yaml locally.
+.secops/foundry.yaml
 # Dependencies
 node_modules/

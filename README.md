@@ -101,6 +101,42 @@ Hunt for suspicious sign-ins across our Entra logs from the last 7 days.
 
 ---
 
+## Optional: Deploy Fable 5 (Azure AI Foundry Add-On)
+
+> **When is this useful?**  Fable 5's extended context makes it worth deploying when you need to review hundreds of SARIF findings at once, trace vulnerabilities across a large codebase, or reconstruct an incident timeline from many log snippets — tasks where a standard model runs out of context or misses cross-file dependencies.
+>
+> **DEPRECATED_WHEN:** `claude-fable-5` is available in the GitHub Copilot model catalog. At that point, this add-on is unnecessary — remove `.secops/foundry.yaml` and use the catalog model directly.
+
+### 1. Run the bootstrap script
+
+**Windows:**
+```powershell
+.\scripts\deploy-foundry-fable5.ps1 -SubscriptionName "Online" -TenantId "<your-tenant-id>"
+```
+
+**macOS / Linux:**
+```bash
+chmod +x scripts/deploy-foundry-fable5.sh
+./scripts/deploy-foundry-fable5.sh --subscription-name "Online" --tenant-id "<your-tenant-id>"
+```
+
+Both scripts are idempotent — safe to re-run. Use `-WhatIf` (PowerShell) or `--what-if` (bash) to preview without making changes.
+
+The script will:
+1. Check `az` CLI login
+2. Create resource group `rg-secops-ai` (if not exists)
+3. Create an Azure AI Foundry resource (`secops-foundry`, East US 2)
+4. Deploy `claude-fable-5` as `fable5-secops` (Global Standard)
+5. Write `.secops/foundry.yaml` so agents auto-detect the deployment
+
+### 2. What happens next
+
+Once `.secops/foundry.yaml` exists with `enabled: true`, secops-squad agents automatically route deep analysis tasks (large SARIF reviews, multi-file vulnerability correlation, large codebase security reviews) to Fable 5. See [`skills/platform/foundry-model-routing.md`](skills/platform/foundry-model-routing.md) for the full routing logic and SDK patterns.
+
+**Pricing:** $10/M input · $50/M output · 90% prompt cache discount. 30-day retention applies (Anthropic safety policy).
+
+---
+
 ## Updating
 
 Keep your project in sync with the latest starter-kit improvements:
