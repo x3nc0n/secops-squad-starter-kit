@@ -207,6 +207,34 @@ No `openai` npm package needed. Pure `fetch()`.
 
 ---
 
+
+## Phase 1 Provider Client Usage
+
+The implemented provider HTTP clients are lower-level than the eventual `getFoundryProvider()` orchestrator. They accept an already-resolved request URL from `resolveEndpoint(config, deployment)` and return the hard fallback shape directly:
+
+```js
+const { callAnthropic } = require('../../lib/foundry/providers/anthropic');
+const { callOpenAI } = require('../../lib/foundry/providers/openai');
+
+const result = await callAnthropic({
+  endpoint: resolveEndpoint(config, deployment),
+  apiVersion: deployment.anthropic_version,
+  token,
+  deployment,
+  payload: { messages, max_tokens: 4096 },
+});
+
+const result = await callOpenAI({
+  endpoint: resolveEndpoint(config, deployment),
+  apiVersion: config.foundry.api_version,
+  token,
+  deployment,
+  payload: { messages, maxTokens: 4096, reasoningEffort: 'medium' },
+});
+```
+
+Auth is explicit: pass `token` for `Authorization: Bearer`, or pass `apiKey` / `authType: 'api-key'` when the credential should be emitted as `x-api-key` (Anthropic) or `api-key` (OpenAI). The provider modules do not run safety gates, telemetry, or dispatch selection; those remain `index.js` responsibilities.
+
 ## CLI: `secops-squad foundry`
 
 Module: `cli/commands/foundry.js`
