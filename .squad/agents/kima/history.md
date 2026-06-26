@@ -4,6 +4,16 @@
 
 ## Learnings
 
+📌 **Foundry Safety Gates — Cloud Egress for Sensitive Security Data (2026-06-25)**
+- **No runtime enforcement exists** on the foundry-integration branch. The "Safety Policy" in docs is advisory prose only — no secret scanner, no PII redactor, no audit log, no egress allowlist. This must be remediated before any real data touches Foundry.
+- **Data classification tiers for Foundry routing:** NEVER send raw credentials/API keys, unredacted OT network topology (IP/hostname), raw working exploit PoCs, customer PII, or classified threat intel. SCRUB FIRST: SARIF findings (redact host/IP/user), CTI reports (remove org-identifying IOCs), pentest output (summarize exploits, replace real IPs with placeholders). OK as-is: anonymized detection logic, generic MITRE mappings, sanitized code snippets.
+- **OT/ICS boundary is sharp:** Foundry is appropriate for CTI-to-detection reasoning, OT MITRE ICS mapping, and assessment planning with sanitized data. It MUST NOT be used to generate OT attack chains, enumerate live OT assets by real IP, or produce exploitable protocol abuse scripts (Modbus/DNP3/EtherNet/IP). The distinction is: analysis IN → detections OUT, not assets IN → attack payloads OUT.
+- **30-day retention is a hard compliance blocker** for most regulated environments: HIPAA, PCI-DSS, CMMC, NIS2, FedRAMP IL2+ all have constraints that interact badly with cloud-retained security data. A compliance pre-check gate must exist before `foundry.enabled: true` is permitted.
+- **Audit non-repudiation minimum:** Every Foundry call needs a structured log entry — SHA-256 hash of payload pre-send (not the payload itself), task type, model, tokens, cost, timestamp, actor identity. JSONL format in `.secops/foundry-audit.jsonl`, rotated and preserved per retention policy.
+- **Priority control order:** P0 = secret/credential scrubber + audit log; P1 = PII/IP/hostname redactor + human-confirm gate for high-sensitivity; P2 = compliance pre-check, egress allowlist, cost cap.
+- **Key pattern for the team:** Treat Foundry like any other cloud API that retains data — classify first, scrub second, gate third, audit always. The adversary model is accidental exfiltration, not malicious, so defense-in-depth with friction-at-the-right-points is the right posture.
+
+
 📌 **Skill Relevance Analysis — Anthropic-Cybersecurity-Skills** (2026-05-27T14:32:50.930Z)
 - **Comprehensive analysis of 754 external skills across 26 domains completed:** Categorized as HIGH (8 domains, 311 skills), MEDIUM (11 domains, 225 skills), LOW (7 domains, 177 skills).
 - **Duplicate risk quantified:** ~74–102 skills likely overlap with our existing 92 curated skills. Highest overlap zones: Security Operations (15–20), Threat Intelligence (10–15), Incident Response (10–12), Cloud Security (12–18).

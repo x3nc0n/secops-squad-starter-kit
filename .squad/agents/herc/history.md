@@ -119,3 +119,18 @@
 ## 2026-05-08 — CLI Dependency Updates
 
 Azure CLI demoted to optional at install-time. **Your code must detect when az is not authenticated** and **offer to prompt users for login** during the session. Check credentials before Azure operations.
+
+📌 **Foundry/Fable 5 Integration Assigned Tasks (2026-06-25)**
+- **Cross-team plan approved:** McNulty consolidated architecture plan for `foundry-integration` branch (NOT merge-ready)
+- **Herc role:** Owns CI/CD infrastructure and Logic Apps workflow integration. Assigned Phase 1–2 work (per McNulty plan):
+  - Phase 1: Create `.github/workflows/foundry-tests.yml` (path-filtered: triggers on changes to `lib/foundry/**` or `.secops/foundry*`)
+    - Runs `npm test` with ≥80% coverage gate
+    - Validates schema consistency (snake_case field names)
+    - Safety gate test: credentials in payload are blocked before HTTP dispatch
+    - Fallback tests: 401/404/429/timeout/ECONNREFUSED handled gracefully (no crashes)
+  - Phase 2: Update Logic Apps playbooks that route to Foundry to include gate invocations (Kima to specify gate interfaces)
+    - Gate 1 (secret scan) and Gate 2 (audit log) are pre-dispatch hooks in `lib/foundry/index.js`
+    - Logic Apps workflows must call through these gates before invoking Foundry endpoint
+- **Key decisions:** Foundation uses REST + `az` auth (no new npm deps), safety gates are hard-enforced, cost ceiling + daily audit trails required
+- **CI workflow pattern:** Path-filtered to avoid running on unrelated PRs; no live Azure credentials (all tests mocked)
+- **Merge gate dependency:** Phase 1 exit blocked on CI green + all P0 quality gates (Carver responsible for test fixtures)

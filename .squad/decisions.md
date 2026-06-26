@@ -4,322 +4,545 @@
 
 ## Active Decisions
 
-### 2026-05-08T16:09:41.073-05:00: Workspace Connect — Azure Auto-Discovery
+
+### 2026-06-25T19:31:35-05:00: Foundry Runtime Abstraction — Config, Auth, and Module Layout
 
 
 
+**Date:** 2026-06-25T19:31:35-05:00
 **By:** Sydnor (Platform Dev)
+**Status:** Proposed — awaiting McNulty approval before implementation
 
-
-
-**Status:** Implemented
-
-
-
-**What:** Rewrote `cli/commands/workspace.js` `connect()` to auto-discover Microsoft Sentinel workspaces from Azure instead of manually prompting for workspace name, resource group, and subscription ID.
-
-
-
-**New flow:**
-
-1. Verify `az` CLI installed, auto-run `az login` if not authenticated (uses `stdio: 'inherit'` for browser flow)
-
-2. List enabled subscriptions, present numbered picker if multiple
-
-3. Discover all Log Analytics workspaces via `az monitor log-analytics workspace list`
-
-4. Check Sentinel on each workspace via `az rest` against `SecurityInsights({name})` solution endpoint
-
-5. Present Sentinel-enabled workspaces (or all workspaces if none have Sentinel) as numbered list
-
-6. Write `.secops/workspaces/<name>.yaml` with auto-populated fields matching schema v1.0
-
-7. Update `.secops/environment.yaml` default_workspace
-
-
-
-**Key design choices:**
-
-- `execAz()` helper with configurable timeout (30s default, 120s for login), `inherit` stdio, and `allowFail` options — replaces single-purpose `execSafe()`
-
-- Resource group parsed from ARM resource ID regex, not from a separate API call
-
-- Sentinel detection via `Microsoft.OperationsManagement/solutions` REST API (simpler than querying alert rules)
-
-- Graceful fallback: if no Sentinel workspaces found, show all LA workspaces with warning
-
-
-
-**Impact:**
-
-- All agents: `workspace connect` now produces richer YAML (includes `workspace_id`, `region`, `sentinel_enabled`, `tier`)
-
-- Kima/Freamon: Can rely on `sentinel_enabled: true` in workspace config for conditional logic
-
-- Users: Zero manual typing of GUIDs or resource group names
-
-
-
-# Decision: GitHub CLI promoted to required dependency
-
-**Date:** 2026-05-08T16:21:48.253-05:00
-**By:** Sydnor (Platform Dev)
-**Status:** Accepted
+---
 
 ## What
 
-GitHub CLI (`gh`) is now a **required** dependency in `install.ps1`, upgraded from optional. The install script will auto-install it via `winget install GitHub.cli` if missing.
+Design decisions for turning the `foundry-integration` branch scaffolding into hardened runtime routing in Node.js (CommonJS).
 
-Additionally, the GitHub Copilot CLI extension (`gh extension install github/gh-copilot`) is now installed as part of the bootstrap.
+---
+
+## Canonical Config Location and Schema
+
+**Decision:** `.secops/foundry.yaml` is the **only** runtime config file for Foundry. The `foundry.*` section in `secops-squad.config.json` / `secops-squad.config.schema.json` is retired to a documentation stub that says "see `.secops/foundry.yaml`".
+
+**Field naming:** **snake_case** throughout the YAML — consistent with all other `.secops/*.yaml` files (`schema_version`, `resource_name`, etc.). The JSON config uses camelCase (`modelDeployments`) — that mismatch is the core of schema conflict #1 vs #2. Since Foundry config lives only in YAML, snake_case wins.
+
+**Canonical schema** (`.secops/foundry.yaml`):
+```yaml
+schema_version: "1.0"
+foundry:
+  enabled: true
+  resource_name: "secops-foundry"
+  endpoint: "https://secops-foundry.cognitiveservices.azure.com"  # base, NO path suffix
+  location: "eastus2"
+  resource_group: "rg-secops-ai"
+  api_version: "2025-04-01-preview"
+  active_model: "claude-fable-5"
+  model_deployments:
+    - model_id: "claude-fable-5"
+      deployment_name: "fable5-secops"
+      deployment_type: "global-standard"
+      provider: "anthropic"           # NEW: "anthropic" | "openai-reasoning" | "openai"
+      status: "active"                # NEW: "active" | "inactive"
+      api_path: "/anthropic/v1/messages"  # NEW: provider-specific REST path
+      reasoning_model: false          # NEW: enables max_completion_tokens + reasoning_effort
+  pricing:
+    input_per_million_tokens: 10.00
+    output_per_million_tokens: 50.00
+    prompt_cache_discount_pct: 90
+  cost_ceiling_usd: 5.00              # NEW: per-session spend guard
+```
+
+**Why this fixes the conflicts:**
+- `active_model` and `model_deployments[].status` are now present — skill reader's detection code works.
+- `api_version` is now at top level — o4-mini path needs it.
+- `endpoint` is now a clean base URL, no path baked in — `api_path` per deployment carries the route suffix.
+- `provider` field drives dispatch in `lib/foundry/index.js`.
+
+---
+
+## Module Layout
+
+```
+lib/foundry/
+  index.js          ← public API: loadFoundryConfig(), getFoundryProvider(), isFoundryAvailable()
+  config.js         ← load+validate .secops/foundry.yaml; enforces schema_version
+  auth.js           ← getFoundryToken(resourceName): shell-out to az, in-memory cache (mirrors auth.js)
+  telemetry.js      ← appendTelemetryRecord(record): writes to .secops/foundry-telemetry.jsonl
+  providers/
+    anthropic.js    ← provider=anthropic: POST {endpoint}{api_path} with Anthropic Messages API shape
+    openai-reasoning.js  ← provider=openai-reasoning: POST {endpoint}/openai/deployments/{name}/chat/completions
+```
+
+**Public API surface (`lib/foundry/index.js`):**
+```js
+// Returns null if Foundry is disabled/unavailable
+async function loadFoundryConfig(rootDir)
+
+// Returns {complete(messages, opts)} or null
+async function getFoundryProvider(rootDir)
+
+// provider.complete(messages, opts) → {ok, content, usage, latencyMs, provider, cached}
+// opts: { maxTokens, reasoningEffort, systemPrompt, costCeilingUsd }
+```
+
+**Auth (`lib/foundry/auth.js`):**
+- Shell out: `az account get-access-token --resource https://cognitiveservices.azure.com --query accessToken -o tsv`
+- Wrap in same `getCachedToken` / `cacheToken` pattern from `lib/graph-security/auth.js`
+- Cache key: `foundry:cognitiveservices`; expiry parsed from `az account get-access-token --query expiresOn`
+- Fallback: `FOUNDRY_API_KEY` env var (for CI/CD without az CLI)
+
+---
+
+## Dependency Strategy
+
+**Decision: No new npm dependencies.** Call REST directly using `fetch` (Node ≥18 built-in). No `@anthropic-ai/sdk`, no `openai` package, no `@azure/identity`.
+
+**Rationale:** The entire project has ONE dependency (`js-yaml`). Both Anthropic Messages API and Azure OpenAI are straightforward REST calls. The Python pseudo-code in the skill uses SDK wrappers as convenience, not necessity. Adding `@azure/identity` (~3MB, 15 transitive deps) for token acquisition that `az account get-access-token` already handles correctly is not justified.
+
+---
+
+## Telemetry Location
+
+**Decision:** `.secops/foundry-telemetry.jsonl` (gitignored, line-delimited JSON). One record per call:
+```json
+{"ts":"2026-06-25T19:31:35Z","model":"claude-fable-5","provider":"anthropic","inputTokens":4200,"outputTokens":312,"cacheHit":false,"latencyMs":3400,"estimatedCostUsd":0.0573}
+```
+Cost ceiling enforced at call time: sum recent records from the JSONL file for the current calendar day; if sum + estimated_call_cost > `cost_ceiling_usd`, return `{ok:false, error:"daily cost ceiling reached"}` without making the API call.
+
+---
+
+## CLI Surface
+
+New subcommand: `secops-squad foundry [status|test|route]` dispatched from `cli/index.js`. Module: `cli/commands/foundry.js`.
+
+`doctor` gains a new optional check: `checkFoundry(rootDir)` — returns `pass` (enabled + reachable), `warn` (config present but `enabled:false`, or `az` not logged in), or skipped (no `.secops/foundry.yaml` at all). This check is **not** a blocker — Foundry is opt-in.
+
+---
+
+## Deploy Script Fix
+
+The ARM REST API version `2026-05-15-preview` in `scripts/deploy-foundry-fable5.ps1` (line 203) is future-dated. Replace with `2025-04-01-preview` (verified current preview for CognitiveServices deployments). The written YAML must also be updated to include the new required fields (`api_version`, `active_model`, per-deployment `status`, `provider`, `api_path`, `reasoning_model`).
+
+---
+
+## Impact on Other Files
+
+| File | Required change |
+|------|----------------|
+| `secops-squad.config.schema.json` | Remove `foundry.*` properties block; replace with `"$comment"` pointing to `.secops/foundry.yaml` |
+| `.secops/foundry.yaml.example` | Rewrite to canonical schema (add `schema_version`, `api_version`, `active_model`, per-deployment `status/provider/api_path/reasoning_model`, `cost_ceiling_usd`) |
+| `skills/platform/foundry-model-routing.md` | Replace Python pseudo-code with Node.js; update detection to read new schema fields; remove Anthropic/openai SDK imports |
+| `scripts/deploy-foundry-fable5.ps1` | Fix API version; update `Write-FoundryConfig` to emit canonical schema |
+| `scripts/deploy-foundry-fable5.sh` | Same fixes as .ps1 |
+| `.gitignore` | Ensure `.secops/foundry.yaml` and `.secops/foundry-telemetry.jsonl` are ignored |
+
+
+
+### 2026-06-25T19:35:20-05:00: Foundry Safety Gates — Required Controls Before Real Data Egress
+
+
+
+**Date:** 2026-06-25T19:35:20-05:00
+**By:** Kima (SecOps Engineer)
+**Status:** Proposed — pending McNulty integration into implementation plan
+
+---
+
+## What
+
+The `foundry-integration` branch wires secops-squad agents to Azure AI Foundry (Claude Fable 5 / o4-mini) for deep security analysis. The current state is **doc + scaffolding only** — the "Safety Policy" in `docs/foundry-fable5-integration.md` and `skills/platform/foundry-model-routing.md` is advisory prose. There are NO runtime safety controls: no secret scanner, no PII/IP redactor, no egress allowlist, no audit trail.
+
+This decision specifies the **minimum enforceable controls** that must exist before any real customer data, pentest output, SARIF findings, or OT/ICS CTI is routed through Foundry.
+
+---
+
+## Data Classification — What May/Must Not Egress
+
+### NEVER send to Foundry (hard block)
+- Raw credentials, API keys, tokens, private keys — in any form
+- Unredacted OT/ICS network topology (real IPs, hostnames, asset names of live OT environments)
+- Working/weaponized exploit PoC code in executable form
+- Customer PII (names, contact info, account identifiers)
+- Classified or restricted threat intelligence (TLP:RED, STIX objects from closed-community feeds with distribution restrictions)
+- `.secops/foundry.yaml` contents (contains endpoint and potentially API keys)
+
+### SCRUB FIRST, then route
+- SARIF findings: replace real hostnames/IPs with placeholders (`[HOST-1]`, `[IP-1]`), remove user account names
+- Pentest output: summarize exploit chains, replace real targets with `[TARGET]`, omit credentials
+- CTI reports (including Dragos-style OT CTI): replace org-identifying IOCs with `[ORG-IOC]`, redact sector-specific asset names
+- Incident timelines: anonymize affected users and system names
+- Detection rule reviews: OK if rules don't embed real asset names or credentials in hardcoded values
+
+### OK to route as-is
+- Anonymized detection logic (KQL/SPL with no real asset context)
+- Generic MITRE ATT&CK / ICS MITRE mappings not tied to specific org assets
+- Architecture descriptions with placeholder names
+- Sanitized code snippets with no embedded secrets or real hostnames
+- Publicly available threat intel (TLP:WHITE/GREEN)
+
+---
+
+## Required Safety Gates (Ordered by Priority)
+
+### P0 — Must exist before any real data is sent
+
+**Gate 1: Secret/Credential Scanner (fail-closed)**
+- Checks payload for: API keys (regex patterns for common formats), private key headers (`-----BEGIN`), bearer tokens, password-like strings in structured contexts
+- Implementation: `detect-secrets` or equivalent, run against the serialized payload before dispatch
+- On match: BLOCK the call, log the attempt, surface error to the invoking agent — do NOT send
+- Location: Pre-dispatch wrapper function that wraps every Foundry API call
+
+**Gate 2: Audit Log (always-on, no bypass)**
+- On every Foundry call (success OR blocked): write a JSONL record to `.secops/foundry-audit.jsonl`
+- Required fields: `timestamp`, `actor` (git user or agent session ID), `task_type` (sarif_analysis/threat_model/etc), `payload_sha256` (SHA-256 of the payload **before** any redaction, so post-incident reconstruction is possible), `payload_size_bytes`, `model`, `endpoint`, `tokens_input`, `tokens_output`, `cost_usd_estimate`, `gate_result` (allowed/blocked), `block_reason` (if blocked)
+- Do NOT log the payload itself — log the hash only
+- Retention: preserve per the local `.secops/compliance/requirements.yaml` retention policy; default 730 days archive
+
+### P1 — Must exist before production use
+
+**Gate 3: PII/IP/Hostname Redactor (fail-closed for OT data)**
+- For payloads tagged as `data_sensitivity: high` or `data_type: ot-cti`: run automated redaction before sending
+- Redact: IPv4/IPv6 addresses, FQDNs, NetBIOS names, UUIDs that look like asset IDs, email addresses
+- Replace with deterministic placeholders (`[IP-1]`, `[HOST-2]`) — deterministic so the analysis output can be de-aliased post-analysis
+- For OT/ICS CTI payloads specifically: require explicit human-confirm before send (see Gate 4)
+- Location: Redaction stage between agent payload assembly and Gate 1
+
+**Gate 4: Human Confirm for High-Sensitivity Payloads**
+- For any payload where `data_sensitivity: high` OR `data_type` is one of `[ot-cti, pentest-output, incident-data]`: pause and require explicit human approval
+- Surface: "This payload contains [data_type]. It will be sent to Foundry (30-day retention). Confirm? [yes/no]"
+- On 'no': abort, log to audit trail as `gate_result: user_declined`
+- On 'yes': log confirmation, proceed
+- Location: After redaction (Gate 3), before secret scan (Gate 1) is re-run on redacted payload
+
+### P2 — Should exist, doesn't block launch
+
+**Gate 5: Egress Allowlist**
+- Foundry calls only permitted to the endpoint URL configured in `.secops/foundry.yaml`
+- Hard-coded allowlist check: if `endpoint` doesn't match expected Foundry hostname pattern (`*.cognitiveservices.azure.com`), block
+- Prevents misconfiguration from accidentally routing to a rogue endpoint
+- Location: At endpoint resolution time in `foundry_model_available()`
+
+**Gate 6: Cost Cap per Call and per Day**
+- Per-call: reject if estimated input tokens > configurable threshold (default: 200K tokens)
+- Per-day: reject if daily spend estimate exceeds configurable cap (default: $50/day)
+- On breach: block call, log, surface alert — do NOT silently degrade to smaller model
+- Location: Pre-dispatch, after payload assembly
+
+**Gate 7: Compliance Pre-Check (required before `foundry.enabled: true` in real tenant)**
+- Before setting `foundry.enabled: true`, a named compliance reviewer must sign off on:
+  - 30-day cloud retention is acceptable given active regulatory frameworks in `requirements.yaml`
+  - Data residency: Foundry resource is in an allowed region per `data_residency.allowed_regions`
+  - No prohibited data types are expected to flow through this integration
+- Sign-off recorded in `.secops/foundry-compliance-review.yaml` with reviewer, date, frameworks reviewed, and explicit approval
+- Agents MUST check for this file and warn if absent when `foundry.enabled: true`
+
+---
+
+## OT/ICS Boundary
+
+**Permitted (defensive):**
+- Ingesting Dragos-style CTI reports → mapping to MITRE ICS techniques → generating Sentinel detection rules
+- Reasoning over ICS vulnerability assessments (with asset details redacted per Gate 3)
+- Lab-environment validation planning where no real asset identifiers are present
+- Building OT-specific threat models from anonymized architecture descriptions
+
+**Prohibited (offensive drift):**
+- Generating OT attack chains (Modbus command sequences, DNP3 spoofing payloads, EtherNet/IP exploitation scripts)
+- Enumerating live OT assets by real IP or hostname through Foundry
+- Producing scripts that interact with live industrial protocols
+- Using Foundry to assist in automated OT reconnaissance or lateral movement planning
+
+The rule is: **analysis IN → defensive detections OUT**. The moment the output is an attack artifact rather than a detection artifact, it is out of scope for this integration.
+
+---
+
+## Compliance Interaction with 30-Day Retention
+
+| Framework | Interaction | Required action |
+|-----------|-------------|-----------------|
+| PCI-DSS | Cardholder data must not leave controlled environments | Block: cardholder data context must never route to Foundry |
+| HIPAA | PHI retention and access controls required | Block: PHI must never route to Foundry |
+| CMMC / FedRAMP | CUI/controlled data residency and access requirements | Gate: requires explicit compliance review; likely prohibited for IL2+ |
+| NIS2 | Incident data handling and third-party data processor rules | Gate: incident data requires DPIA / DPA with Microsoft |
+| GDPR | 30-day retention may be acceptable; depends on DPA with Microsoft | Gate: confirm Microsoft DPA covers Foundry cognitive services as processor |
+| Internal (this repo) | US data residency policy — Foundry regions must be in `allowed_regions` | Enforce: Gate 5 + Gate 7 residency check |
+
+---
+
+## Impact on Team
+
+- **Freamon:** Must wrap all Foundry call generation with the Gate 1 (secret scan) and Gate 2 (audit log) functions. These are pre-dispatch hooks — Freamon doesn't write the gates, but must call through them.
+- **Herc:** Logic Apps that automate Foundry routing must include gate invocations in the workflow before the Foundry action step.
+- **Sydnor:** Gate implementation lives in the platform layer. Gate 1 and Gate 2 are the highest priority deliverables.
+- **Carver:** Security review of the gate implementation code itself — confirm regex patterns in Gate 1 are not bypassable.
+
+---
+
+## Files Affected
+
+- `skills/platform/foundry-model-routing.md` — must be updated to reference gates and link to implementation
+- `docs/foundry-fable5-integration.md` — "Safety Policy" section must be replaced with gate reference (not prose)
+- `.secops/foundry-audit.jsonl` — new file, created on first Foundry call (gitignored)
+- `.secops/foundry-compliance-review.yaml` — new file, required before production enablement (gitignored)
+- `.gitignore` — must include `foundry-audit.jsonl` and `foundry-compliance-review.yaml`
+
+
+
+### 2026-06-25T19:31:35-05:00: Foundry Integration — Consolidated Architecture Plan
+
+
+
+**Date:** 2026-06-25T19:31:35-05:00
+**By:** McNulty (Lead)
+**Status:** Approved — this is the canonical plan; supersedes individual specialist proposals
+
+---
+
+## 1. Executive Verdict
+
+The `foundry-integration` branch (single commit `3f68380`, +1355 lines on branch `foundry-integration`) is **documentation and scaffolding only**. There is no executable runtime code — the "implementation" is Python pseudo-code in a Node.js project, the config schema is internally contradicted three ways, and the deploy script references a nonexistent ARM API version. The external tool's bottom-line verdict — "feasible for defensive AI-assisted analysis, not yet for production-grade model-routed orchestration" — **holds up**, but its factual claims are wrong: the branch is `foundry-integration` not `foundry-fable5`, it is ONE commit ahead of main not five, and there is NO live `.secops/foundry.yaml` on disk — the external tool hallucinated runtime config state from documentation prose. We validated this ourselves; don't trust that tool's specifics.
+
+---
+
+## 2. What's Missing / Not Considered
+
+### Runtime
+- No executable routing code exists (Python pseudo-code in a Node.js project)
+- No provider abstraction — endpoint shape conflict between Anthropic (`/anthropic/v1/messages`) and OpenAI reasoning (`/openai/deployments/{name}/chat/completions`) unresolved at runtime
+- No auth module — no token acquisition, caching, or refresh
+- No fallback contract — no defined behavior for 401/404/429/timeout/ECONNREFUSED
+
+### Config / Schema
+- THREE incompatible config schemas: `secops-squad.config.schema.json` (camelCase), `.secops/foundry.yaml.example` (snake_case), and the skill's detection code (reads fields from neither)
+- `active_model`, `status`, `api_version` referenced in skill detection code but absent from both schemas
+- No `schema_version` field for forward compatibility
+
+### Safety / Governance
+- "Safety Policy" is prose — zero runtime enforcement
+- No secret/credential scanner pre-dispatch
+- No audit trail (30-day Foundry retention = exfiltration surface)
+- No PII/IP redactor for OT/ICS or pentest data
+- No human-confirm gate for high-sensitivity payloads
+- No egress allowlist (misconfigured endpoint → data to rogue server)
+- No cost cap (unbounded spend risk)
+- No compliance pre-check mechanism before production enablement
+- OT/ICS scope boundary is stated but not enforced
+
+### Testing
+- Zero tests for any Foundry code
+- No CI workflow covering `lib/foundry/**` paths
+- No fixtures for config variants (valid/disabled/malformed/partial)
+- No negative test matrix (schema drift, secrets in payload, concurrent token race, etc.)
+
+### Deploy / Ops
+- ARM API version `2026-05-15-preview` is future-dated / nonexistent — script fails
+- Deploy script emits incomplete YAML (missing new required fields)
+- Deploy script bakes path into endpoint URL (breaks multi-provider routing)
+- No `secops-squad foundry status/test/route` CLI surface
+- No `doctor` check for Foundry health
+
+### Docs
+- Skill pseudo-code references `anthropic` and `openai` Python SDKs that are not (and will not be) project dependencies
+- Safety policy section in `docs/foundry-fable5-integration.md` gives false confidence — it must reference enforceable gates, not advisory prose
+- No deprecation notice documenting that Foundry routing is temporary (until Fable 5 reaches Copilot catalog)
+
+---
+
+## 3. Architecture Decisions (Made by McNulty)
+
+### 3a. Config Casing: **snake_case**
+
+**Decision:** All `.secops/foundry.yaml` fields use `snake_case`. The `secops-squad.config.schema.json` foundry block is retired to a pointer comment.
+
+**Rationale:** Every other `.secops/*.yaml` file is snake_case. The JSON config's camelCase convention lives in a different namespace (`secops-squad.config.json`). Foundry config lives in YAML; YAML convention wins. **Carver: align all fixtures to snake_case immediately.**
+
+### 3b. Single Canonical Config File
+
+**Decision:** `.secops/foundry.yaml` is the only config file. Gitignored. Schema per Sydnor's proposal (with `schema_version: "1.0"`, per-deployment `provider`, `api_path`, `status`, `reasoning_model`, and top-level `cost_ceiling_usd`). The `.secops/foundry.yaml.example` ships committed as a template.
+
+### 3c. Dependency Strategy: **Ratified**
+
+**Decision:** No new npm dependencies. Use Node 18 built-in `fetch` for HTTP. Use `az account get-access-token` shell-out with in-memory cache (pattern from `lib/graph-security/auth.js`). Env var fallback `FOUNDRY_API_KEY` for CI.
+
+**Why:** Project has ONE dep (`js-yaml`). Both Anthropic Messages API and Azure OpenAI are trivial REST shapes. No SDK justified.
+
+### 3d. Safety Gate Call Path (Ordered)
+
+When an agent invokes `provider.complete(messages, opts)`, this is the internal execution order inside `lib/foundry/index.js`:
+
+```
+1. Cost Cap check       (Gate 6 — reject if daily spend exceeded)
+2. PII/IP Redactor      (Gate 3 — deterministic placeholder replacement)
+3. Human Confirm        (Gate 4 — prompt if data_sensitivity:high; skip in non-interactive)
+4. Secret Scanner       (Gate 1 — regex scan of FINAL payload post-redaction; fail-closed)
+5. Egress Allowlist     (Gate 5 — validate endpoint matches *.cognitiveservices.azure.com)
+6. HTTP Dispatch        (provider-specific: anthropic.js or openai-reasoning.js)
+7. Audit Log            (Gate 2 — ALWAYS fires, success or blocked, hash-not-payload)
+8. Telemetry Record     (latency, tokens, cost estimate → foundry-telemetry.jsonl)
+```
+
+Gate 2 (audit) fires on EVERY path — including when earlier gates block. Gates 1-5 are fail-closed: any failure = `{ok: false, error: "..."}`, never throws, never sends unredacted data.
+
+### 3e. OT/ICS Scope Boundary (Project Rule)
+
+**Hard rule:** The Foundry integration operates on the principle **"analysis IN → defensive detections OUT."** It is PROHIBITED to use Foundry to generate, refine, or execute OT/ICS attack artifacts (Modbus commands, DNP3 spoofing payloads, exploitation scripts, live-asset enumeration). If a Foundry response contains directly weaponizable output, the invoking agent must discard it and log a `gate_result: output_violation` audit record. This is a project-level constraint, not a per-deployment toggle.
+
+---
+
+## 4. Unified Phased Plan
+
+### Phase 0 — Foundation (Config + Auth + Module Skeleton)
+**Duration:** ~8 hours | **Exit criteria:** `lib/foundry/` loads config, acquires token, returns `isFoundryAvailable()` correctly; schema is unified; deploy script fixed.
+
+| Task | Owner | Depends on |
+|------|-------|-----------|
+| Unify schema: write canonical `.secops/foundry.yaml.example` with all fields | Sydnor | — |
+| Retire `foundry.*` from `secops-squad.config.schema.json` (pointer comment only) | Sydnor | Schema above |
+| Implement `lib/foundry/config.js` (load + validate YAML, enforce `schema_version`) | Sydnor | Schema above |
+| Implement `lib/foundry/auth.js` (az shell-out + env var fallback + in-memory cache) | Sydnor | — |
+| Fix `scripts/deploy-foundry-fable5.ps1` and `.sh`: correct API version to `2025-04-01-preview`, emit canonical YAML fields | Sydnor | Schema above |
+| Create `test/fixtures/foundry/` with 5 config variants (valid, disabled, malformed, partial, schema-drifted) — **all snake_case** | Carver | Schema above |
+| Write `lib/foundry/foundry.test.js` skeleton: config loading + auth tests | Carver | config.js + auth.js |
+
+**Merge gate:** `npm test` passes; config loads from fixture; auth returns mock token; no Python anywhere in `lib/`.
+
+---
+
+### Phase 1 — Safe Routing (Gates + Providers + CLI)
+**Duration:** ~18 hours | **Exit criteria:** An agent can call `provider.complete()` and get a response from a mocked endpoint, with all P0 safety gates enforced and tested.
+
+| Task | Owner | Depends on |
+|------|-------|-----------|
+| Implement Gate 1: secret scanner (`lib/foundry/gates/secret-scan.js`) | Kima | — |
+| Implement Gate 2: audit log (`lib/foundry/gates/audit.js`) | Kima | — |
+| Implement `lib/foundry/providers/anthropic.js` | Sydnor | config.js, auth.js |
+| Implement `lib/foundry/providers/openai-reasoning.js` | Sydnor | config.js, auth.js |
+| Implement `lib/foundry/index.js` (public API, gate orchestration per §3d) | Sydnor | All gates, both providers |
+| Implement `cli/commands/foundry.js` (status / test / route) | Sydnor | index.js |
+| Wire `doctor` foundry check (pass/warn/skip) | Sydnor | index.js |
+| Safety gate test: PEM key + AWS key in payload → blocked | Carver | Gate 1 |
+| Fallback tests: mock 401/404/429/timeout/ECONNREFUSED → `{ok:false}` | Carver | providers |
+| Endpoint construction test: anthropic path vs openai-reasoning path | Carver | providers |
+| Audit log test: every call (success + blocked) writes JSONL record with correct fields | Carver | Gate 2 |
+| Update skill `foundry-model-routing.md`: Node.js, reference gates, remove Python | Freamon | index.js |
+| Update `docs/foundry-fable5-integration.md`: replace prose safety with gate references + deprecation notice | Freamon | Gates |
+
+**Merge gate:** All P0 quality gates pass (see §5). `npm test` ≥80% coverage on `lib/foundry/`. No unredacted secrets reach mock endpoint in any test.
+
+---
+
+### Phase 2 — Hardening (P1/P2 Gates + CI + Production Readiness)
+**Duration:** ~12 hours | **Exit criteria:** Full gate stack, CI workflow, compliance pre-check template.
+
+| Task | Owner | Depends on |
+|------|-------|-----------|
+| Implement Gate 3: PII/IP/hostname redactor (`lib/foundry/gates/redactor.js`) | Kima | — |
+| Implement Gate 4: human-confirm for high-sensitivity payloads | Kima | Gate 3 |
+| Implement Gate 5: egress allowlist | Kima | — |
+| Implement Gate 6: cost cap (per-call + per-day from telemetry JSONL) | Sydnor | telemetry.js |
+| Create `.secops/foundry-compliance-review.yaml` template (Gate 7) | Kima | — |
+| Token expiry test: mock token expires in < 5m → re-acquire | Carver | auth.js |
+| Create `.github/workflows/foundry-tests.yml` (path-filtered, no live Azure creds) | Herc | Tests pass locally |
+| Negative/edge test matrix: oversized payload, concurrent token race, double-slash endpoint, malformed YAML, enabled:false fast-path | Carver | index.js |
+| End-to-end integration test (mocked Foundry, full gate chain, asserts audit + telemetry written) | Carver | All gates |
+
+**Merge gate:** CI green. P1 quality gates pass. Compliance template committed. Full negative matrix passes.
+
+---
+
+**Total estimated effort:** ~38 hours (Sydnor ~18h, Kima ~10h, Carver ~8h, Freamon ~1.5h, Herc ~0.5h)
+
+---
+
+## 5. Merge Bar — Definition of Done
+
+The `foundry-integration` PR is **REJECTED** in its current form. It must not merge until ALL of the following pass:
+
+1. ✅ `lib/foundry/` exists as Node.js/CommonJS — zero Python in `lib/`
+2. ✅ `npm test` passes with ≥80% line coverage on `lib/foundry/**`
+3. ✅ Config schema reconciled to snake_case; a schema-alignment test asserts field names
+4. ✅ Safety gate test: payloads containing `-----BEGIN RSA PRIVATE KEY-----` or `AKIA[A-Z0-9]{16}` are blocked before HTTP dispatch
+5. ✅ Fallback contract test: 401/404/429/timeout/ECONNREFUSED all return `{ok: false, error}` — never throw, never crash
+6. ✅ Deploy script API version is `2025-04-01-preview` (or another VERIFIED existing version)
+
+These six gates are non-negotiable. The PR stays open until they all pass.
+
+---
+
+## 6. Scope Guardrails
+
+**NOT in scope (resist these):**
+
+- ❌ Multi-provider abstraction beyond Anthropic + OpenAI-reasoning. Two providers is the ceiling until a third is actually needed.
+- ❌ SDK dependencies (`@anthropic-ai/sdk`, `openai`, `@azure/identity`). REST + `az` is sufficient.
+- ❌ Real-time streaming/SSE. Batch request/response only.
+- ❌ Model fine-tuning, embeddings, or vector DB integration through Foundry.
+- ❌ Automated model selection / routing intelligence. The config declares `active_model`; the runtime uses it. No LLM-decides-which-LLM patterns.
+- ❌ Production monitoring dashboard. Telemetry JSONL is the interface; dashboarding is a separate concern.
+- ❌ Cross-tenant / multi-workspace Foundry routing. One endpoint per config.
+
+**Deprecation path (MUST be documented in the skill and in README):**
+
+When Anthropic Fable 5 (or equivalent) appears in the GitHub Copilot model catalog, `lib/foundry/` and `cli/commands/foundry.js` are **deprecated immediately** and removed within one release cycle. The Foundry integration exists solely to bridge the gap between "model needed now" and "model available in Copilot catalog." It is not a permanent architectural layer.
+
+---
+
+## Appendix: External Tool Error Correction
+
+| External tool claim | Reality |
+|---|---|
+| Branch is `foundry-fable5` | Branch is `foundry-integration` |
+| 5 commits ahead of main | ONE commit (`3f68380`) |
+| "Fable 5 `pending_quota` in your live config" | No `.secops/foundry.yaml` exists on disk (gitignored, never committed). Prose in docs mentions quota status — not runtime state. |
+| "o4-mini active stopgap in live config" | Skill markdown mentions o4-mini as a stopgap. There is no "live config" — no YAML file exists. |
+| "No executable CLI/lib runtime routing exists" | ✅ Correct. This is the actual gap. |
+
+
+
+### 2026-06-25T19:31:35-05:00: Foundry Integration Test & Merge Quality Gates
+
+
+
+**Date:** 2026-06-25T19:31:35-05:00
+**By:** Carver (Tester/QA)
+**Status:** Proposed — requires McNulty to incorporate into merge plan
+
+## What
+
+Formal test strategy and merge-blocking quality gates for the `foundry-integration` branch. The branch currently ships docs + scaffolding with ZERO runtime code, ZERO tests, and at least three confirmed defects:
+
+1. **Schema mismatch** — `secops-squad.config.schema.json` uses camelCase (`modelDeployments`, `modelId`, `deploymentName`); `.secops/foundry.yaml.example` uses snake_case (`model_deployments`, `model_id`, `deployment_name`). The documented detection pseudo-code reads `active_model` and `status` fields that exist in *neither* schema.
+2. **Python-only implementation** — the sole "implementation" is Python pseudo-code; the runtime is Node.js/CommonJS. Nothing is actually executable.
+3. **Future-dated API version** — `deploy-foundry-fable5.ps1` targets REST API `2026-05-15-preview`, which may not exist yet.
+
+## Decision
+
+**Do not merge `foundry-integration` until all P0 quality gates below pass.**
+
+### P0 Gates (merge-blocking)
+
+- [ ] `lib/foundry/` module exists in Node.js/CommonJS (NOT Python)
+- [ ] `lib/foundry/foundry.test.js` exists and `npm test` passes with ≥ 80% line coverage on the new module
+- [ ] Schema reconciliation: pick ONE canonical case (recommendation: camelCase to match the JSON schema and existing project conventions) and update `foundry.yaml.example`, `foundry-model-routing.md`, and any generated code to match; a schema-alignment test must assert this
+- [ ] Safety gate test: a test that feeds a payload containing `-----BEGIN RSA PRIVATE KEY-----` (or `AKIA...` AWS key pattern) through the routing layer and asserts it is blocked/redacted *before* the HTTP call is made
+- [ ] Fallback test: mock 401, 404, 429, and network timeout responses from the Foundry endpoint; assert in each case the system returns to the standard model, never crashes, and never re-throws to the caller
+- [ ] API version verification: either confirm `2026-05-15-preview` exists in the Azure `Microsoft.CognitiveServices` ARM provider, or replace with a version that does (e.g. `2025-04-01-preview` as used in the skill's curl example)
+
+### P1 Gates (must pass within one sprint of P0)
+
+- [ ] CI workflow `foundry-tests.yml` gating on PRs that touch `lib/foundry/**` or `.secops/foundry*`
+- [ ] Fixture files for all five config variants (see test strategy)
+- [ ] Endpoint URL construction test covering the `/anthropic/v1/` vs `/openai/deployments/` split
+- [ ] Token expiry test (mock a token that expires in < 5 minutes, assert re-acquisition)
 
 ## Why
 
-- `gh` is required for squad issue mode (Ralph's issue routing, label-based work assignment).
-- The `copilot --agent secops-squad` launch command depends on the `gh-copilot` extension.
-- The primary workflow (`copilot --agent secops-squad`) cannot function without both `gh` and the copilot extension.
+Untested config parsing with known schema drift means the feature is broken on arrival. A test would have caught the camelCase/snake_case split before it was written. The safety gate is non-negotiable — sending unredacted PII through a 30-day-retention cloud endpoint is a compliance violation by design.
 
 ## Impact
 
-- **All agents:** The `copilot` command is now the documented entry point. References to `node cli/index.js` are removed from README.
-- **Users:** Fresh installs get `gh` and `gh-copilot` automatically. Users still need to run `gh auth login` manually (cannot be automated in a non-interactive script).
-- **install.ps1:** Fails if `gh` cannot be installed (same as Git and Node.js).
-
-# Decision: gh CLI and az CLI are optional — connected during agent session
-
-**Date:** 2026-05-08T16:41:19.514-05:00
-**By:** Sydnor (Platform Dev)
-**Status:** Implemented
-
-## What
-
-GitHub CLI (`gh`) and Azure CLI (`az`) are no longer install-time prerequisites for secops-squad.
-They are optional tools that users connect interactively during a Copilot session when they first need them.
-
-## Why
-
-Most users don't have `gh` or `az` configured before starting. Requiring them upfront creates friction
-and failed installs for users who just want to try the tool. The agent can guide interactive auth
-far more gracefully than a shell script can.
-
-## Changes
-
-- `install.ps1`: `gh` demoted from required (`$true`) to optional (`$false`). `Ensure-GhCopilotExtension` removed entirely.
-- `install.sh`: no change needed (gh was already optional).
-- `README.md`: prerequisites table updated; `--yolo` promoted as primary launch command.
-- `cli/commands/doctor.js`: `checkCopilotCli()` added as required check; gh/az remain optional warnings.
-
-## Impact
-
-- **All agents:** Users may not have `gh` or `az` connected on first run — agents should check and offer to help connect them.
-- **McNulty:** Issue mode requires gh; should detect and prompt before attempting gh operations.
-- **Herc/Kima:** Azure operations require az login; should detect and prompt before az calls.
-
-# Decision: First-Run Onboarding Skill Design
-
-**Date:** 2026-05-08T16:48:55-05:00
-**By:** Kima (SecOps Engineer)
-**Status:** Implemented
-
-## What
-
-Created `.copilot/skills/first-run-onboarding/SKILL.md` — a copilot-level skill that teaches the agent to proactively detect first-run state and guide new users through environment setup.
-
-## Key Design Choices
-
-1. **Progressive disclosure over prerequisite dumps.** The skill guides one step at a time: Azure CLI → Workspace discovery → .secops/ init → GitHub CLI (optional). No walls of text listing everything the user needs.
-
-2. **Detection-first, not prompt-first.** The agent runs 5 silent checks at session start (`.secops/` exists, `az account show`, workspace count, `gh auth status`, template defaults) and uses a decision matrix to determine which step to start at. Users don't need to ask for help.
-
-3. **Re-entry without restart.** When a user returns to a partially-configured environment, the agent picks up at the first incomplete step. Token-expired sessions get a targeted `az login`, not a full re-onboarding.
-
-4. **Azure before GitHub.** Azure is required for all security work; GitHub is optional for PR workflows. The skill enforces this ordering and frames GitHub as "one more optional step."
-
-5. **Delegates deep setup.** Basic onboarding gets users to one working Sentinel workspace. Product-by-product connectivity (Defender XDR, MDI, MDE, etc.) is deferred to `skills/msft-security/connectivity-setup.md`. No duplication.
-
-6. **Leverages existing CLI.** The skill references `secops-squad workspace connect` (Sydnor's auto-discovery flow) and `secops-squad init --secops` rather than reimplementing workspace discovery. Falls back to manual guidance if CLI commands fail.
-
-## Impact
-
-- **All agents:** Should check first-run signals at session start. If signals detected, invoke this skill before doing security work.
-- **Sydnor:** The skill depends on `workspace connect` and `init --secops` CLI commands — changes to those commands should update this skill.
-- **Freamon/Herc:** Can assume `.secops/` exists after onboarding. No need to add their own first-run detection.
-- **Users:** New users get guided setup instead of "run these 5 commands first."
-
-### 2026-05-13T07:58:33-05:00: User directive
-
-**By:** John Spaid (via Copilot)
-**Status:** Accepted
-
-**What:** Ground all agent personas on modern SecOps approaches. Specifically: use "Sentinel data lake" instead of "Auxiliary Logs" or "Aux Logs." ADX should only be recommended when there's a justifiable requirement. The modern default for long-term/low-cost data retention in Sentinel is the Sentinel data lake, not Aux Logs, not standalone ADX. All charters, skills, docs, and templates should reflect current Microsoft SecOps terminology and patterns.
-
-**Why:** User request — captured for team memory
-
-### 2026-05-13: Sentinel Data Lake Terminology Modernization
-
-**Date:** 2026-05-13
-**Author:** Freamon (KQL Engineer)
-**Status:** Accepted
-
-**Context:** Microsoft rebranded "Auxiliary Logs" to **Sentinel data lake** as the modern low-cost retention tier in Microsoft Sentinel. The secops-squad-starter-kit skills documentation used the legacy "Auxiliary Logs" terminology and positioned Azure Data Explorer (ADX) as the default recommendation for long-term retention.
-
-**Decision:**
-1. **Replace "Auxiliary Logs"/"Aux Logs" with "Sentinel data lake"** in all skills prose and documentation.
-2. **Keep `'Auxiliary'` in PowerShell `ValidateSet` parameters and API calls** — this is the Azure Log Analytics Tables API parameter value. Annotate with `# Auxiliary = Sentinel data lake` comments.
-3. **Reposition ADX as a specialized option**, not the default for long-term retention. Sentinel data lake is the modern default for most organizations.
-4. **Standard data tiering order:** Analytics → Basic → Sentinel data lake → Archive.
-5. **Standardize pricing at ~$0.75/GB ingestion** for the Sentinel data lake tier.
-
-**Scope:** 14 files updated across log-analytics, adx, kql, platform, and powershell skill domains.
-
-**Impact:** All squad members creating or updating skills that reference data tiers, retention strategies, or ADX migration should use "Sentinel data lake" in prose and follow the API-vs-product naming convention established here.
-
-### 2026-05-13T07:58:33-05:00: Modern SecOps Terminology Standards
-
-**By:** Kima (SecOps Engineer)
-**Status:** Accepted
-
-**What:** Standardized terminology across all `skills/msft-security/` and `skills/detection/` files to reflect Microsoft's modern SecOps platform:
-1. **"Sentinel data lake"** is the modern low-cost retention tier (replaces "Basic Logs" / "Auxiliary Logs" as the primary term in tiering discussions). "Basic Logs" remains valid as a Log Analytics concept but Sentinel-facing docs should lead with "Sentinel data lake."
-2. **Unified SOC platform** at security.microsoft.com — Sentinel + Defender XDR share a single portal experience. References to "the Sentinel portal" now acknowledge this unified option.
-3. **ADX repositioned** — Azure Data Explorer is a specialized option (custom ML, cross-org federation, massive scale). Sentinel data lake is the default for long-term retention within Sentinel.
-4. **Content Hub** — Portal references updated to use Content Hub as the modern deployment path for Sentinel solutions.
-5. **Summary rules** — Added as a modern cost-optimization pattern (aggregate Sentinel data lake tables into compact Analytics-tier tables).
-
-**Why:** John directed that all content reflect modern Microsoft SecOps approaches. The platform has evolved significantly — the unified SOC portal, Sentinel data lake tier, and summary rules are all GA features that should be the default guidance.
-
-**Impact:**
-- **All agents:** When referencing Sentinel portal, include the unified SOC platform at security.microsoft.com. When discussing data tiers, lead with Sentinel data lake as the modern low-cost tier.
-- **Freamon:** PowerShell scripts referencing Sentinel should note the unified portal URL.
-- **log-analytics skills:** Already correctly reference both "Basic Logs" and "Sentinel data lake" — no changes needed there.
-- **Future skills:** Should follow these terminology standards from the start.
-
-### 2026-05-13T07:58:33-05:00: Technology Grounding Sections in All Agent Charters
-
-**By:** McNulty (Lead)
-**Status:** Implemented
-
-**What:** Added a `## Technology Grounding` section to all 6 agent charters (McNulty, Kima, Freamon, Herc, Sydnor, Carver) with agent-specific guidance on modern Microsoft Sentinel and SecOps patterns. Updated `team.md` project context to reflect the modern platform.
-
-**Why:** An agent used "Aux Logs" and "ADX" as default long-term retention guidance. The modern (2025-2026) approach is **Sentinel data lake** — a low-cost, long-term retention tier within Sentinel itself. ADX remains valid but is an advanced option, not the default. The unified SOC platform (security.microsoft.com) is now the converged operational surface.
-
-**Key Terminology Changes:**
-- "Aux Logs" / "Auxiliary Logs" → **Sentinel data lake**
-- ADX → advanced option requiring justification (custom ML, cross-org federation, existing investments)
-- Standalone Sentinel portal → **unified SOC platform** (security.microsoft.com)
-
-**Impact:**
-- **All agents:** Must use modern terminology and default to Sentinel data lake for long-term retention guidance.
-- **McNulty:** Reviews PRs for modern pattern compliance — rejects "Aux Logs" references and unjustified ADX usage.
-- **Kima:** References Content Hub, unified SOC platform, Microsoft Security Exposure Management.
-- **Freamon:** Aware of query differences across Analytics/Basic/Sentinel data lake tiers; uses Summary Rules for aggregation.
-- **Herc:** Targets unified SOC platform APIs; playbooks query Sentinel data lake, not ADX, by default.
-- **Sydnor:** IaC templates provision Sentinel data lake tables by default, ADX as optional add-on.
-- **Carver:** Validates queries target correct data tier; flags tier mismatches in test coverage.
-
-**Convention:** When the platform evolves again, apply the same pattern: update all charters' Technology Grounding sections, not just the one that triggered the issue.
-
-### 2026-05-27T09:06:17.460-05:00: Skill Relevance Analysis — Anthropic-Cybersecurity-Skills
-
-**By:** Kima (SecOps Engineer)
-**Status:** Proposed
-
-**What:** Comprehensive analysis of 754 external skills from mukul975/Anthropic-Cybersecurity-Skills across 26 domains. Categorized domains as HIGH (8 domains, 311 skills), MEDIUM (11 domains, 225 skills), and LOW (7 domains, 177 skills) relevance. Identified ~74–102 likely duplicates with our existing 92 curated skills.
-
-**Key Framework Findings:**
-- **MITRE ATT&CK:** HIGH — adopt for expanded technique coverage
-- **D3FEND:** HIGH — fills our defensive vocabulary gap (we have no D3FEND coverage)
-- **NIST CSF:** HIGH — maps to our IR lifecycle
-- **ATLAS:** MEDIUM — selective import for AI/ML-assisted workflows
-- **AI RMF:** LOW — governance-level, not actionable for SOC operations
-
-**Recommended Import Priority:** HIGH domains first (Threat Hunting, Threat Intelligence) → D3FEND vocabulary → NIST CSF alignment → ATLAS for targeted AI workflows.
-
-**Impact:**
-- **All agents:** Community skill imports will bring structured hypothesis frameworks, MISP integration patterns, cloud forensics procedures, SOC metrics frameworks, PAM patterns, and D3FEND defensive countermeasure vocabulary.
-- **McNulty:** Use this analysis to guide deduplication review and feature gate decisions.
-- **Carver:** Validate D3FEND mapping skill for coverage completeness; vet Threat Hunting skills for KQL accuracy before import.
-- **Freamon:** KQL accuracy review for Threat Hunting domain skills.
-
-### 2026-05-27T09:06:17.460-05:00: External Skill Assimilation Strategy — Anthropic-Cybersecurity-Skills
-
-**By:** McNulty (Lead)
-**Status:** Proposed — Awaiting team adoption
-
-**What:** Defined comprehensive strategy for importing ~390 skills from 14 Microsoft-adjacent domains of mukul975/Anthropic-Cybersecurity-Skills. Created hybrid frontmatter schema preserving framework metadata (NIST CSF, MITRE ATT&CK, CIS Controls, etc.). Established `skills/community/` directory structure, deduplication rules, and vendor-at-commit maintenance model.
-
-**Key Decisions:**
-1. **Scope:** Import 14 curated domains (~390 skills); skip 12 red-team/adversary/non-Microsoft domains (~364 skills)
-2. **Format:** Hybrid frontmatter extending our current schema with `mitre_attack`, `nist_csf`, `nist_800_53`, `cis_controls`, `author`, `source_repo`, `license` fields
-3. **Directory:** New `skills/community/` isolation; curated skills remain unchanged and take precedence
-4. **Deduplication:** Add `superseded_by:` references to community skills overlapping curated content; never delete
-5. **Attribution:** Preserve `author:` fields (Apache-2.0 requirement); create `skills/community/NOTICE.md` with source commit SHA
-6. **Maintenance:** Vendor (copy in) at pinned commit; periodic sync script, not submodule
-
-**Recommended Implementation:**
-- Sydnor: Write import script (Node.js or PowerShell) with frontmatter transformation
-- Carver: Generate deduplication report (fuzzy title/tag overlap against curated skills)
-- Kima: Spot-check 10–15 skills across domains for quality
-- McNulty: Gate PR on deduplication report and format compliance
-
-**Impact:**
-- **All agents:** Will have access to 390+ new skills with rich framework mappings, enabling better technique coverage and compliance alignment
-- **Curated domains:** Unchanged; community skills provide supplementary reference material
-- **Framework coverage:** Gains D3FEND vocabulary, expanded MITRE ATT&CK technique mappings, NIST CSF alignment
-- **Scope isolation:** Clear provenance boundary between curated and community content
-
-### 2026-05-27T09:32:50.930-05:00: User directive — Import ALL skills
-
-**By:** User (via Copilot)
-**Status:** Accepted
-
-**What:** User directive explicitly overrides McNulty's 14-domain filter recommendation. Import ALL 754 skills from all 26 domains in mukul975/Anthropic-Cybersecurity-Skills with no exclusions.
-
-**Why:** User request — captured for team memory. Overrides the earlier domain filtering strategy.
-
-**Impact:**
-- **Sydnor:** Import scope now includes all 754 upstream skills; excluded domains (red-team, pentesting, malware analysis, etc.) are now included
-- **Carver:** Deduplication and validation apply across all imported subdomains, not just Microsoft-adjacent ones
-- **McNulty:** Previous filtered-domain list is superseded; review gates now apply to the full catalog
-- **Kima/Freamon/Herc:** Community skill discovery surfaces broader defensive and adjacent reference material; curated skills remain the quality bar
-- **All agents:** Greater breadth of defensive context available, though some imported skills may fall outside primary SOC operational scope
-
-### 2026-05-27T09:32:50.930-05:00: Community Skill Import Scope Override
-
-**By:** Sydnor (Platform Dev)
-**Status:** Implemented
-
-**What:** Executed full import of all 754 skills from mukul975/Anthropic-Cybersecurity-Skills into `skills/community/` tree across all 26 subdomains. Preserved McNulty's community-skill architecture (hybrid frontmatter, vendor model, attribution, NOTICE.md) while widening scope to entire upstream catalog per user directive.
-
-**Key Actions:**
-1. Wrote `scripts/import-community-skills.js` to fetch, filter, flatten, and transform upstream skills into hybrid frontmatter format
-2. Imported all 754 skills into `skills/community/{subdomain}/{name}.md`
-3. Generated `skills/community/NOTICE.md` with pinned upstream commit SHA and attribution roster
-4. Preserved all framework metadata (MITRE ATT&CK, NIST CSF, D3FEND, ATLAS, etc.) in frontmatter
-5. Created cross-references for skills overlapping curated content using `superseded_by:` field
-6. Committed as commit f43f848
-
-**Impact:**
-- **Squad members:** 754 community skills now discoverable across 45 subdomains (expanded from original 26 due to granular categorization)
-- **McNulty:** Future review applies to full import; filtered-domain strategy superseded
-- **Carver:** Deduplication report now maps all community skills against 102 curated skills for overlap detection
-- **Kima/Freamon/Herc:** Broader skill discovery available; agent logic can weight curated vs. community appropriately
-- **Users:** Expanded defensive reference library available during agent sessions
-- **Maintenance:** `scripts/import-community-skills.js` is the canonical sync path; future imports require new commit SHA and explicit timestamp
-
-### 2026-05-13T07:58:33-05:00: Terminology Modernization — Auxiliary Logs → Sentinel data lake
-
-**By:** Sydnor (Platform Dev)
-**Status:** Implemented
-
-**What:** Updated all documentation, templates, samples, and skill files to use modern Microsoft SecOps terminology:
-- **"Auxiliary Logs" / "Aux Logs" → "Sentinel data lake"** across 30+ files
-- **Data tiering order** standardized to: Analytics Logs → Basic Logs → Sentinel data lake → Archive
-- **ADX positioning** changed from default long-term retention to specialized option (extreme volume, full KQL on historical data, cross-team sharing)
-
-**Key Design Choice:** PowerShell `ValidateSet` parameters and Azure API calls retain `'Auxiliary'` as the enum value (that's what the Azure REST API expects). Inline comments annotate the modern name. Display-facing strings (CLI badges, docs, YAML comments) use "Sentinel data lake".
-
-**Impact:**
-- **All agents:** Use "Sentinel data lake" in all output and recommendations. Never say "Auxiliary Logs" or "Aux Logs" in user-facing content.
-- **Freamon:** PowerShell data-tiering functions keep `'Auxiliary'` in `ValidateSet` — don't change the API enum, only the comments and prose.
-- **Kima/Herc:** Skills and charters already updated by McNulty's modernization pass. This completes the platform layer.
-- **Templates/Samples:** `.secops/` YAML files now reference "Sentinel data lake" in tier values and comments. Contoso sample fully aligned.
+- **Freamon:** must implement `lib/foundry/` in Node.js/CommonJS, not Python
+- **Herc:** must wire `foundry-tests.yml` CI workflow
+- **McNulty:** gates above are hard blockers for the merge plan
+- **Kima:** owns redaction spec; safety gate test implementation requires Kima's redaction rules to be codified before the test can be written

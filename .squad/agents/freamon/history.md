@@ -79,3 +79,12 @@
 - **API vs. product naming:** PowerShell `ValidateSet` params keep `'Auxiliary'` (Azure API value) with `# Auxiliary = Sentinel data lake` comments; prose uses "Sentinel data lake" with "(formerly Auxiliary)" parentheticals where needed for clarity
 - **Pricing standardized:** ~$0.75/GB ingestion for Sentinel data lake tier across all files
 - **ADX repositioning:** Added warning boxes in ADX skills noting Sentinel data lake is the modern default; migration-from-sentinel.md expanded to 3-column decision matrix (Sentinel/Sentinel data lake/ADX)
+
+📌 **Foundry/Fable 5 Integration Assigned Tasks (2026-06-25)**
+- **Cross-team plan approved:** McNulty consolidated architecture plan for `foundry-integration` branch (NOT merge-ready)
+- **Freamon role:** Owns skill documentation updates for Foundry routing. Assigned Phase 1 work (per McNulty plan):
+  - Update `skills/platform/foundry-model-routing.md`: Replace Python pseudo-code with Node.js runtime references, update detection to read new schema fields (snake_case `active_model`, `model_deployments[]`, `provider`, `api_path`, `reasoning_model`, `cost_ceiling_usd`), remove Anthropic/openai SDK imports (using REST + `az` instead)
+  - Update `docs/foundry-fable5-integration.md`: Replace "Safety Policy" prose section with references to enforceable gates (Gate 1–7 per Kima's spec), add deprecation notice (Foundry is bridge until Fable 5 reaches Copilot catalog)
+- **Key decisions:** Foundation config uses snake_case (YAML convention), no new npm dependencies, safety gates are hard-enforced before real data egress
+- **Merge gate dependency:** Phase 1 exit dependent on McNulty's 6 P0 merge gates (test coverage, schema alignment, safety gate blocking credentials, fallback contract); Freamon's skill updates must reference these gates
+- **Deprecation note (in Freamon's docs):** "When Anthropic Fable 5 appears in Copilot model catalog, Foundry routing is deprecated immediately and removed within one release cycle."

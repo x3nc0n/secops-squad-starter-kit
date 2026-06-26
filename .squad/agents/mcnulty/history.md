@@ -6,6 +6,13 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+📌 **Foundry Integration Critical Assessment** (2026-06-25T19:31:35-05:00)
+- **External tools hallucinate runtime state from docs:** The external evaluator confused documentation prose (model names, quota status) with live config state. Always validate branch name, commit count, and file existence directly — never trust an external tool's "config analysis" without checking `git log` and `ls`.
+- **Schema conflicts compound silently in scaffolding branches:** Three incompatible schemas (JSON camelCase, YAML snake_case, skill pseudo-code reading nonexistent fields) went unnoticed because there was no executable code to fail. Lesson: schema alignment tests should be written BEFORE implementation, not after.
+- **Safety gates must be architectural, not advisory:** Prose-only safety policies create false confidence. Gates must be code in the call path — fail-closed, audited, tested. The ordered gate chain (cost→redact→confirm→scan→allowlist→dispatch→audit) is now a project standard.
+- **Deprecation intent must be documented at creation time:** Foundry routing is explicitly temporary (bridge until Copilot catalog inclusion). Documenting this upfront prevents it from calcifying into permanent architecture.
+- **Three-specialist synthesis works well for complex assessments:** Sydnor (runtime), Kima (safety), Carver (testing) each caught different classes of gap. The consolidated plan is stronger than any individual analysis.
+
 📌 **External Skill Assimilation Orchestration** (2026-05-27T14:32:50.930Z)
 - **User directive overrode domain filtering:** McNulty proposed importing 14 Microsoft-adjacent domains (~390 skills) from mukul975/Anthropic-Cybersecurity-Skills. User directive expanded scope to ALL 754 skills across all 26 domains.
 - **Architecture survives scope expansion:** The `skills/community/` isolation boundary, hybrid frontmatter, deduplication rules, and vendor-at-commit model remain sound and adaptable to broader imports.

@@ -4,6 +4,38 @@
 
 ## Learnings
 
+📌 **Platform Engineering: Core Contributions**
+
+**Framework Foundation (2026-05-08 through 2026-05-27)**
+- **Install & Onboarding:** Rewrote `install.ps1`/`install.sh` to full bootstrap (winget → Git → Node 18+ → GitHub CLI), demoted az CLI to optional, established CLI shim (`secops-squad.cmd`), added PATH auto-setup, fixed PS5.1 encoding issues (UTF-8 BOM for Unicode safety), established post-install two-command flow (`copilot --agent secops-squad`).
+- **Workspace Auto-Discovery:** Rewrote `cli/commands/workspace.js` to auto-discover Log Analytics/Sentinel via Azure (`az` CLI + REST calls), eliminated manual prompts, added `execAz()` helper with configurable timeout + stdio inheritance for interactive login, Sentinel detection via SecurityInsights solution REST API.
+- **Update Command:** Created `cli/commands/update.js` for git-based starter-kit sync (adds remote, merges with `--allow-unrelated-histories`).
+- **CLI Readiness:** Fixed 8 issues: post-init message, workspace connect/status/disconnect, agent name matching, copilot instructions, doctor checklist (Azure connectivity + secops config checks), .env.example expansion, MCP config github key, shell script pattern fixes.
+
+**Architecture & Standards (2026-05-04 through 2026-05-08)**
+- **README Restructure:** Followed bradygaster/squad pattern (alpha warning → value prop → Quick Start → all commands table → personas → parallel execution → skills → .secops/ framework → samples → FAQ → troubleshooting → documentation → built-on). Expanded 210 → 302 lines with cleaner structure.
+- **Directory Naming:** Changed default install path from `~/secops-squad-starter-kit` to `~/secops-squad` (keeping repo URL intact).
+- **Sentinel Data Lake Terminology:** Modernized 30+ files (docs, .secops, samples, skills, templates, CLI) to replace "Auxiliary Logs" with "Sentinel data lake" (Microsoft modern term), repositioned ADX as specialized option, updated data tiering order (Analytics → Basic → Sentinel DL → Archive). PowerShell APIs keep `'Auxiliary'` enum with comments noting modern name.
+- **Starter-Kit Clone Guard:** Added `isStarterKitRepo()` detection in `init.js` + informational warning in README.
+
+**Skill & Integration (2026-05-04 through 2026-05-27)**
+- **Community Skill Import:** Engineered full 754-skill bulk import from `mukul975/Anthropic-Cybersecurity-Skills` (Apache-2.0 licensed) into `skills/community/{subdomain}/` with zero deduplication deletes, hybrid frontmatter preservation, attribution compliance (`skills/community/NOTICE.md`), canonical import tool (`scripts/import-community-skills.js` with pinned source commit for reproducibility). Deduplication strategy: mark overlapping skills with `superseded_by:` field, keep curated skills as single source of truth.
+- **First-Run Onboarding:** Kima created `.copilot/skills/first-run-onboarding/SKILL.md` progressive onboarding skill (depends on workspace connect + init --secops commands).
+
+📌 **Core Architectural Patterns Established**
+- **Framework Architecture:** Skills-first (domain-sorted .md), persona-driven onboarding, CLI plugin system, init wizard, `.secops/` environment context (16 files, 6 dirs, v1.0 schema).
+- **CLI Architecture:** `secops-squad` wraps @bradygaster/squad-cli. Commands: init, doctor, skill, persona, kql-validate, playbook, plugin, env. Zero external deps except js-yaml.
+- **Agent Integration:** All 6 agent charters require 7-step `.secops/` discovery flow before operations (tenant context, workspace discovery, compliance scope, data classification, SOAR routing, skill relevance, cost baseline).
+
+🔷 **Foundry Runtime Abstraction — Platform Engineering Analysis (2026-06-25)**
+- **Schema conflict remediation:** Three incompatible schemas identified + unified to snake_case YAML (matches `.secops/` convention). JSON `foundry.*` section retired to pointer comment.
+- **Module layout:** `lib/foundry/` with config.js (load+validate), auth.js (token + cache), providers/anthropic.js, providers/openai-reasoning.js, telemetry.js, public API (loadFoundryConfig, getFoundryProvider, provider.complete).
+- **Auth pattern:** Shell out to `az account get-access-token` with in-memory cache (5-min buffer, mirrors graph-security/auth.js pattern). No new npm deps (keep at 1: js-yaml only).
+- **Deploy script fixes:** API version `2026-05-15-preview` corrected to `2025-04-01-preview` (verified stable), YAML output fields completed (active_model, status, provider, api_path, reasoning_model, cost_ceiling_usd).
+- **Endpoint shape conflict resolved:** Anthropic path `/anthropic/v1/messages` vs OpenAI path `/openai/deployments/{name}/chat/completions` via per-deployment `api_path` field (not baked into base URL).
+
+
+
 [CMD] **Community Skill Import — Full 754-Skill Batch** (2026-05-27T14:32:50.930Z)
 - **Executed full import of 754 skills from mukul975/Anthropic-Cybersecurity-Skills:** Created `scripts/import-community-skills.js` to fetch, filter, flatten, and transform upstream content into hybrid frontmatter.
 - **Hybrid frontmatter preserved all framework metadata:** MITRE ATT&CK, NIST CSF, NIST 800-53, CIS Controls, ATLAS mappings all retained in frontmatter for compliance/detection alignment.

@@ -66,3 +66,16 @@
 - `.secops/` context tests: missing config → helpful error, workspace routing, migration state, discovery log YAML format, gov-cloud endpoints, multi-tenant MSSP
 - Pester patterns: `Assert-SuccessResult`/`Assert-ErrorResult` helpers for `@{ok;data/error}` contract, `Register-RateLimitedMock`, `Mock Invoke-AzRestMethod`
 - All scenarios reference corresponding workflows from `cross-skill-orchestration.md`
+
+📌 **Foundry Integration Test Strategy Authored** (2026-06-25)
+- Audited `foundry-integration` branch: ZERO runtime code, ZERO tests, THREE confirmed defects before a single test was written
+- Defect 1 — Schema drift: `secops-squad.config.schema.json` camelCase vs `.secops/foundry.yaml.example` snake_case vs `foundry-model-routing.md` pseudo-code reading fields (`active_model`, `status`) that exist in neither schema; documented detection code would always return `null`/`None`
+- Defect 2 — Language mismatch: sole "implementation" is Python pseudo-code; project runtime is Node.js/CommonJS; nothing is executable
+- Defect 3 — Future-dated API: `deploy-foundry-fable5.ps1` calls `api-version=2026-05-15-preview` (post-current-date); skill's own curl example uses `2025-04-01-preview` — inconsistency must be resolved before any deployment
+- Test strategy covers: config detection (present/disabled/malformed/schema-drifted/partial), provider selection, endpoint URL construction (Anthropic `/anthropic/v1/` vs OpenAI `/openai/deployments/`), auth token acquisition/expiry/refresh, fallback on 401/404/429/timeout/network error, safety/redaction gates, SARIF payload sizing
+- Fixture layout proposed: 9 fixture files under `lib/foundry/fixtures/` mirroring `lib/kql-validator/fixtures/`
+- Six P0 merge-blocking gates defined; four P1 gates; three P2 gates
+- CI workflow `foundry-tests.yml` spec: path-filtered on `lib/foundry/**` and `.secops/foundry*`, must run `npm test` with Node 18+
+- Decision written to `.squad/decisions/inbox/carver-foundry-test-strategy.md`
+- Reusable skill written to `.squad/skills/testing-external-http-module.md` (mock fetch pattern, sequence mock, token expiry pattern, safety/redaction pattern, fixture layout)
+- Key lesson: when docs ship without a single runnable test, the schema contracts are always aspirational, not actual — test-first catches schema drift before it becomes integration debt
