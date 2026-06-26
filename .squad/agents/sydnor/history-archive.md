@@ -125,3 +125,16 @@ Built 13 files (12 YAML + README.md) under `samples/secops-contoso/.secops/` —
 **Discovery log:** 6 realistic entries (table confirmations, tier limitations, permission errors, migration verification).
 
 All cross-references validated: subscription IDs, tenant IDs, workspace names, migration refs, ADX cluster names consistent across files.
+
+---
+
+## Archived Session History (2026-06-25 — 23,168 bytes archived)
+
+Old history.md was 23,168 bytes. Summarized and archived. Key highlights:
+
+- **Platform Engineering:** Install & onboarding overhaul, workspace auto-discovery, CLI readiness, update command, starter-kit guard, PS5 encoding fix
+- **Architecture & Standards:** README restructure, directory naming, Sentinel DL terminology, framework foundation
+- **Integration:** Community skill bulk import (754 skills), first-run onboarding skill, terminology modernization
+
+Full archive available in .squad/agents/sydnor/history-archive.md (pre-2026-06-25).
+

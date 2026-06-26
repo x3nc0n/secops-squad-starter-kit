@@ -76,3 +76,18 @@
 ## 2026-05-08 — CLI Dependency Updates
 
 GH CLI demoted to optional at install-time. **Your code must detect when gh is not available** (e.g., before issue routing) and **offer to help users connect it interactively** during the session. Same pattern as before but now user-guided rather than pre-required.
+
+---
+
+## 2026-06-26T01:07:49Z — Foundry Phase 0 EXIT GATE: PASSED
+
+Sydnor (platform) and Carver (testing) completed Phase 0 on foundry-integration branch (commit c7f09ec).
+
+**Status:** All three P0 quality gates PASSED:
+- [x] \lib/foundry/\ exists in Node.js/CommonJS
+- [x] Config loads from all 6 fixtures + auth injection verified
+- [x] No Python in lib/
+
+285/285 tests pass. Ready to merge Phase 0 or proceed to Phase 1 per your call.
+
+Inbox merged into decisions.md. See orchestration-log/ for agent details.

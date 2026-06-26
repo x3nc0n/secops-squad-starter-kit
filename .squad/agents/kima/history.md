@@ -75,3 +75,13 @@ Azure CLI demoted to optional at install-time. **Your code must detect when az i
 - **Delegates deep setup:** Basic onboarding gets to one working Sentinel workspace. Full product connectivity deferred to `skills/msft-security/connectivity-setup.md`.
 - **Depends on:** `secops-squad workspace connect` (Sydnor's auto-discovery), `secops-squad init --secops`, `doctor.js` check functions (`checkAzureCli`, `checkGitHubCli`, `checkSecopsConfig`).
 - **Anti-patterns documented:** 7 common onboarding mistakes (prerequisite dumps, repeating working checks, blocking on optional steps, raw command output, etc.).
+
+---
+
+## 2026-06-26T01:07:49Z — Phase 0 PASSED; F-001 Endpoint Validation Gate for Phase 1
+
+Carver completed QA of Sydnor's Phase 0 Foundry work (config loading, auth, fixtures). All 285 tests pass.
+
+**For Kima:** Finding F-001 (fail-open on missing endpoint) is the target for Phase 1 fail-closed validation. Endpoint validation should be added to loadFoundryConfig() before any provider code calls esolveEndpoint() in production. This is a gate before Phase 1 provider work begins.
+
+Inbox files merged into decisions.md by Scribe.

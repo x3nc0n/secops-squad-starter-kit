@@ -88,3 +88,20 @@
 - **Key decisions:** Foundation config uses snake_case (YAML convention), no new npm dependencies, safety gates are hard-enforced before real data egress
 - **Merge gate dependency:** Phase 1 exit dependent on McNulty's 6 P0 merge gates (test coverage, schema alignment, safety gate blocking credentials, fallback contract); Freamon's skill updates must reference these gates
 - **Deprecation note (in Freamon's docs):** "When Anthropic Fable 5 appears in Copilot model catalog, Foundry routing is deprecated immediately and removed within one release cycle."
+
+---
+
+## 2026-06-26T01:07:49Z — Phase 0 Complete; Phase 1 Ready
+
+Sydnor's Phase 0 Foundry work shipped on foundry-integration (commit c7f09ec). Carver validated all 59 new tests + 285 full suite: PASS.
+
+**Delivered:**
+- \lib/foundry/config.js\ — config loading + endpoint resolution
+- \lib/foundry/auth.js\ — bearer token acquisition + caching
+- \lib/foundry/fixtures/\ — 6 YAML fixtures for test coverage
+- Deploy scripts fixed (API version + endpoint)
+- Skills doc converted from Python to Node.js CommonJS
+
+**F-001 deferred:** Endpoint validation (fail-closed) — Phase 1 gate before production use.
+
+Phase 1 scope: Provider HTTP clients, public API surface.
