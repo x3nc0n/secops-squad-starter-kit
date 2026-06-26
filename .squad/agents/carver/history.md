@@ -92,3 +92,25 @@
 - Schema regression test covers: example YAML parses valid, has all canonical snake_case fields, no camelCase keys; JSON schema has no `modelDeployments` key (drift removed), has $comment pointing to foundry.yaml
 - Auth test injection: `execFn` parameter used throughout — no live az CLI or network calls; `clearTokenCache()` called in beforeEach/afterEach to isolate tests
 - Phase 0 exit gate verdict: PASS (see `.squad/decisions/inbox/carver-foundry-phase0-verdict.md`)
+
+---
+
+## 2026-06-26T04:33:44Z — Foundry Phase 1 COMPLETED: All Merge Gates PASS + F-002 Resolved
+
+Carver completed Phase 1 QA on foundry-integration branch (commits db80059 → faa913b → ada897c).
+
+**Status:** Phase 1 PASS — CLEARED FOR MERGE
+
+- Initial test run (commit db80059): Found F-002 (P0) — secret-scan exception text leaked into returned reason; verdict: FAIL pending fix
+- Sydnor fixed F-002 (commit faa913b): redacted exception text to generic `secret-scan failed closed (<redacted>)`, error type only in logs
+- Re-verification (commit ada897c): All 6 P0 merge gates now PASS:
+  - Gate 1: Node.js/CommonJS, no Python ✓
+  - Gate 2: `npm test` 322/322 pass, coverage 82.36% (meets ≥80%) ✓
+  - Gate 3: Schema snake_case + regression tests ✓
+  - Gate 4: Secret-scan blocks PII/keys before HTTP dispatch ✓
+  - Gate 5: 401/404/429/timeout/ECONNREFUSED → `{ok:false}`, no throw ✓
+  - Gate 6: Deploy script API version verified (`2025-04-01-preview`) ✓
+- F-002 regression test confirmed: `Bearer scanthrowsecretvalue1234567890` absent from reason/logs ✓
+- Verdict: Phase 1 PASS, CLEARED FOR MERGE
+
+Inbox merged into decisions.md. Orchestration logs in .squad/orchestration-log/. Session log in .squad/log/.

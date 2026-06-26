@@ -73,6 +73,33 @@
 - **Files modified:** `.squad/agents/{mcnulty,kima,freamon,herc,sydnor,carver}/charter.md`, `.squad/team.md`
 - **Pattern:** Technology Grounding sections should be maintained as the platform evolves. Any future platform shift gets the same treatment — update all charters, not just the one that triggered the issue.
 
+---
+
+## 2026-06-26T04:33:44Z — Foundry Phase 1 COMPLETE: ALL MERGE GATES PASS — CLEARED FOR MERGE
+
+Foundry integration Phase 1 completed on foundry-integration branch. All teams delivered and Carver re-verified: **Phase 1: PASS, CLEARED FOR MERGE**.
+
+**Phase 1 Build Summary:**
+- **Kima (Safety):** F-001 fail-closed fix (commit 54b32be) + P0 safety gates (commit 56e9dd3)
+- **Sydnor (Platform):** Providers (commit de7e981) + dispatch orchestrator (commit 6e48348) + CLI (commit 7f63550) + F-002 redaction fix (commit faa913b)
+- **Carver (Testing):** Initial verdict found F-002 (commit db80059) → re-verified all gates PASS (commit ada897c)
+
+**Merge Gate Verdict:**
+| Gate | Status |
+|------|--------|
+| Node.js/CommonJS, no Python | ✓ PASS |
+| `npm test` 322/322 pass, coverage 82.36% | ✓ PASS |
+| Schema snake_case + tests | ✓ PASS |
+| Secret-scan blocks before egress | ✓ PASS |
+| Fallback contract (no throw) | ✓ PASS |
+| Deploy script API version verified | ✓ PASS |
+
+**F-002 Incident:** Secret-scan exception text was leaking into returned reason. Sydnor fixed by redacting exception message; Carver verified fix resolves the issue and doesn't break fail-closed semantics.
+
+**Recommendation:** Merge foundry-integration to main. Phase 2 (hardening gates + CI workflow) can begin independently.
+
+Inbox merged into decisions.md. Orchestration logs in .squad/orchestration-log/. Session log in .squad/log/.
+
 ## 2026-05-08 — CLI Dependency Updates
 
 GH CLI demoted to optional at install-time. **Your code must detect when gh is not available** (e.g., before issue routing) and **offer to help users connect it interactively** during the session. Same pattern as before but now user-guided rather than pre-required.

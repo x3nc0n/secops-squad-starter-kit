@@ -49,3 +49,23 @@
 - **Phase 0 EXIT GATE: PASS** — Carver validated all 3 criteria (config loads, auth injection works, no Python in lib/). 59 new tests + 285 full suite pass. Cleared for Phase 1.
 - **F-001 Finding (non-blocking):** Partial config (missing endpoint) is fail-open — Phase 1 hardening recommendation before production use.
 
+---
+
+## 2026-06-26T04:33:44Z — Foundry Phase 1 COMPLETED: Providers + Dispatch + CLI READY
+
+Sydnor completed Phase 1 on foundry-integration branch across 4 commits:
+1. Commit de7e981: `lib/foundry/providers/anthropic.js` + `openai.js` (no-throw fallback contract)
+2. Commit 6e48348: `lib/foundry/index.js` dispatch orchestrator (fail-closed gate semantics)
+3. Commit 7f63550: `cli/commands/foundry.js` + CLI registration (P0 gates always attached)
+4. Commit faa913b: F-002 fix (secret exception redaction)
+
+**Status:** Phase 1 PASS — CLEARED FOR MERGE
+
+- Providers: Anthropic and OpenAI clients; both return `{ok:false,error}` on any failure; never throw
+- Dispatch: `getFoundryProvider()` + `routeToFoundry()` with hook contract for pre/post gates
+- CLI: `foundry status` and `foundry route` commands; status shows config state (no secrets); route always attaches P0 gates
+- F-002: fixed exception text redaction to prevent secret leakage in reason/logs
+- Final verdict: 6/6 merge gates PASS; all tests green (322/322); coverage 82.36%
+
+Inbox merged into decisions.md. Orchestration logs in .squad/orchestration-log/. Session log in .squad/log/.
+

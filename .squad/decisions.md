@@ -633,3 +633,535 @@ o-active-deployment-foundry.yaml\ → null ✔
 
 **Phase 0: ✅ PASSES all three criteria**
 - Cleared for Phase 1 work (provider dispatch in \providers/anthropic.js\ and \providers/openai-reasoning.js\)
+
+
+
+### 2026-06-25T21:30:00-05:00: Kima — Foundry F-001 Fail-Closed Endpoint Contract
+
+**Date:** 2026-06-25T21:30:00-05:00
+**By:** Kima (Safety/SecOps)
+
+Finding F-001 is closed by making `loadFoundryConfig()` the gate. If the resolved active Foundry config lacks a usable `foundry.endpoint` — absent, empty, whitespace-only, or normalized to empty — the loader returns `null`. No caller should treat Foundry as available until that gate passes.
+
+`resolveEndpoint()` remains a defensive backstop. If direct callers bypass the loader with a config missing `foundry.endpoint`, it throws `Foundry endpoint is missing or empty...` instead of producing a hostless path like `/anthropic/v1/messages`.
+
+Test contract changed:
+- `lib/foundry/fixtures/partial-foundry.yaml` now expects `null`.
+- F-001 regression tests assert the partial fixture fails closed, whitespace endpoints fail closed, and direct `resolveEndpoint()` calls without an endpoint throw clearly.
+
+Validation:
+- `node --test lib\foundry\*.test.js`: 60 tests, 60 pass, 0 fail.
+- `npm test`: 286 tests, 286 pass, 0 fail.
+
+
+
+### 2026-06-25T21:30:00-05:00: Sydnor — Foundry Provider Clients
+
+**Date:** 2026-06-25T21:30:00-05:00
+**Branch:** foundry-integration
+**Scope:** Phase 1 `p1-providers` only. No dispatch orchestrator or safety gates.
+
+#### Function signatures
+
+- `callAnthropic({ endpoint, apiVersion, token, apiKey, authType, deployment, payload, fetchFn, timeoutMs })`
+- `callOpenAI({ endpoint, apiVersion, token, apiKey, authType, deployment, payload, fetchFn, timeoutMs })`
+
+Both are async CommonJS exports from `lib/foundry/providers/anthropic.js` and `lib/foundry/providers/openai.js`.
+
+#### Fallback contract
+
+Success:
+
+```js
+{ ok: true, status: number, data: object, usage: object }
+```
+
+Failure, including HTTP 401/403/404/429, any other non-2xx HTTP status, network error, invalid URL, missing fetch, or timeout:
+
+```js
+{ ok: false, status: number, error: string }
+```
+
+For network errors and timeouts, `status` is `0` because there is no HTTP response. Provider clients do not throw for dispatch failures.
+
+#### Header/auth choices
+
+- Anthropic:
+  - Bearer mode: `Authorization: Bearer {token}`
+  - API-key mode: `x-api-key: {apiKeyOrToken}`
+  - Always sends `Content-Type: application/json`, `Accept: application/json`, `anthropic-version`, and `x-ms-model-mesh-model-name` when `deployment.deployment_name` exists.
+- OpenAI:
+  - Bearer mode: `Authorization: Bearer {token}`
+  - API-key mode: `api-key: {apiKeyOrToken}`
+  - Always sends `Content-Type: application/json` and `Accept: application/json`.
+
+Default is bearer token because `getFoundryToken()` primarily returns an Entra token. API-key auth is explicit via `apiKey`, `authType: 'api-key'`, or a token object with `{ token, isApiKey: true }` / `{ token, type: 'api-key' }`.
+
+#### Timeout
+
+Default timeout is 60,000 ms. Callers can override with `timeoutMs`. Timeout returns `{ ok:false, status:0, error:'Request timed out after ...ms' }`.
+
+#### Carver test assumptions to verify
+
+- Mock `fetchFn` receives the exact provider headers without leaking secrets to errors.
+- Anthropic body maps `maxTokens` to `max_tokens` and includes `model` from `deployment.deployment_name` when omitted.
+- OpenAI reasoning deployments map `maxTokens` to `max_completion_tokens` and `reasoningEffort` to `reasoning_effort`; non-reasoning maps to `max_tokens`.
+- `apiVersion` is appended only when OpenAI `endpoint` lacks `api-version=`.
+- Mock 401/403/404/429, ECONNREFUSED, invalid URL, and hung fetch all return `{ok:false}` and never throw.
+
+
+
+### 2026-06-25T21:40:00-05:00: Sydnor — Foundry Dispatch Orchestrator
+
+**Date:** 2026-06-25T21:40:00-05:00
+**Branch:** foundry-integration
+**Scope:** Phase 1 `p1-dispatch`: `lib/foundry/index.js` only. Hook call sites defined; gate bodies intentionally not implemented.
+
+#### Exported signatures
+
+```js
+const { getFoundryProvider, routeToFoundry } = require('./lib/foundry');
+
+getFoundryProvider({
+  rootDir,          // optional, defaults process.cwd()
+  deploymentName,  // optional model_id or deployment_name override
+});
+
+await routeToFoundry({
+  rootDir,          // optional, defaults process.cwd()
+  deploymentName,  // optional model_id or deployment_name override
+  payload,          // provider request body
+  hooks,            // optional safety hook object or preDispatch array
+  fetchFn,          // optional injectable fetch for tests
+  execFn,           // optional injectable az exec for tests
+  timeoutMs,        // optional provider timeout
+});
+```
+
+`getFoundryProvider()` returns `{ok:true, config, deployment, provider, client, endpoint, modelId, deploymentName}` or `{ok:false,error,...}`. It does not acquire credentials.
+
+`routeToFoundry()` returns the provider client result plus `{provider, modelId, deploymentName, latencyMs}` on provider success/failure, or an orchestrator `{ok:false,...}` failure. It never throws.
+
+#### Hook contract Kima should implement against
+
+Preferred shape:
+
+```js
+hooks: {
+  preDispatch: [
+    { name: 'secret-scan', run: async (ctx) => ({ ok: true }) }
+  ],
+  postDispatch: [
+    { name: 'audit', run: async (ctx, result) => undefined }
+  ]
+}
+```
+
+Functions are also accepted:
+
+```js
+hooks: {
+  preDispatch: [async function secretScan(ctx) { return { ok: true }; }],
+  postDispatch: [async function audit(ctx, result) {}]
+}
+```
+
+For shorthand, `hooks: [fn1, fn2]` means `preDispatch: [fn1, fn2]`.
+
+##### `ctx` fields
+
+```js
+{
+  rootDir,
+  payload,
+  provider,         // 'anthropic' | 'openai' | 'openai-reasoning'
+  modelId,
+  deploymentName,
+  deployment,       // active deployment config entry
+  endpoint,         // resolved request URL, no secrets
+  apiVersion,
+  timestamp
+}
+```
+
+No token or API key is placed in `ctx`.
+
+##### Pre-dispatch
+
+- Runs in order after config/provider/auth resolution and before provider `fetch`.
+- Return `undefined` or `{ok:true}` to continue.
+- Return `{ok:false, reason}` to block.
+- Throwing is treated as a fail-closed block.
+- Block result:
+
+```js
+{ ok:false, error:'foundry-gate-blocked', gate:'secret-scan', reason:'...' }
+```
+
+##### Post-dispatch
+
+- Runs after the final route result is known.
+- Runs for auth failures, provider responses, and pre-dispatch blocks, so Audit can record both allowed and blocked attempts.
+- Receives `(ctx, result)`.
+- Return value is ignored.
+- Throws are swallowed and warned; post hooks do not change the route result.
+
+P0 production hooks are expected to be named `secret-scan` in `preDispatch` and `audit` in `postDispatch`. `routeToFoundry()` warns if either is absent. Current defaults are no-op for development only.
+
+#### Deployment → provider mapping
+
+| `deployment.provider` | Client |
+|---|---|
+| `anthropic` | `providers/anthropic.js::callAnthropic` |
+| `openai` | `providers/openai.js::callOpenAI` |
+| `openai-reasoning` | `providers/openai.js::callOpenAI` |
+
+Missing `provider` defaults to `openai`. Any other provider returns `{ok:false,error:'foundry-provider-unsupported',provider}`.
+
+Deployment selection:
+
+1. If `deploymentName` is supplied, match an active deployment where `deployment_name` or `model_id` equals it.
+2. Otherwise match active deployment where `model_id === foundry.active_model`.
+
+#### `{ok:false}` error codes
+
+| Error | Source |
+|---|---|
+| `foundry-not-configured` | `loadFoundryConfig(rootDir)` returned `null` |
+| `foundry-deployment-not-found` | No active deployment matched active model or requested deployment |
+| `foundry-provider-unsupported` | Provider not in the dispatch map |
+| `foundry-provider-resolution-failed: ...` | Unexpected provider selection/endpoint failure |
+| `foundry-auth-failed` | `getFoundryToken({execFn})` returned `{ok:false}` |
+| `foundry-gate-blocked` | A pre-dispatch hook returned `{ok:false}` or threw |
+| `foundry-route-failed` | Unexpected top-level orchestrator error |
+
+Provider clients keep their existing fallback contract for HTTP/network/timeout failures:
+
+```js
+{ ok:false, status:number, error:string }
+```
+
+No orchestrator failure path logs secrets or throws.
+
+
+
+### 2026-06-25T21:50:00-05:00: Kima — Foundry Safety Gates
+
+**Date:** 2026-06-25T21:50:00-05:00
+**Branch:** foundry-integration
+**Scope:** P0 Foundry gates: pre-dispatch secret scan and post-dispatch audit.
+
+#### Factory signatures
+
+- `createSecretScanGate(opts = {})` from `lib/foundry/gates/secret-scan.js`
+  - Returns `{ name: 'secret-scan', run(ctx) }`.
+  - `opts.rules` can override detection rules for tests.
+  - `opts.logger` can override warning output.
+- `createAuditGate({ auditPath, fs, logger, nowFn } = {})` from `lib/foundry/gates/audit.js`
+  - Returns `{ name: 'audit', run(ctx, result) }`.
+  - `auditPath` may be absolute or relative to `ctx.rootDir`.
+- `createFoundrySafetyHooks(opts = {})` from `lib/foundry/gates/index.js`
+  - Returns `{ preDispatch: [secretScan], postDispatch: [audit] }`.
+
+#### Secret scan fail-closed semantics
+
+The secret scan serializes `ctx.payload` and scans before provider egress. If a high-confidence rule matches, it returns:
+
+```js
+{ ok: false, reason: 'secret-scan detected <rule-id> (<redacted>)' }
+```
+
+The orchestrator turns that into `foundry-gate-blocked`, so provider fetch is never reached. If serialization or scanning throws, the gate still returns `{ ok:false, reason:'secret-scan failed closed: ...' }`. The gate warns with rule/type only and a redacted indicator; it never logs the secret value. This is the kind of gate that actually catches bad payloads before they leave the box, not an audit checkbox after exfiltration.
+
+#### Audit record schema
+
+One JSON object per line:
+
+- `timestamp` — ISO 8601 UTC
+- `deployment` — Foundry deployment name
+- `provider` — `anthropic`, `openai`, or `openai-reasoning`
+- `modelId` — configured model id
+- `payload_sha256` — SHA-256 of a safe serialization of the payload; never the payload
+- `outcome` — `ok`, `blocked`, `auth-failed`, or `provider-error`
+- `status_code` — provider HTTP status when present, else `null`
+- `gate` — blocking gate name for blocked calls, else `null`
+- `usage` — `{ inputTokens, outputTokens, totalTokens, cachedInputTokens, reasoningTokens }` or `null`
+
+Audit is post-dispatch best effort. It catches write failures, emits a warning, and must not alter route results.
+
+#### Audit path and gitignore
+
+Default path: `.secops/foundry-audit.jsonl` under `ctx.rootDir`. `.gitignore` now includes `.secops/foundry-audit.jsonl`.
+
+#### Smoke checks
+
+Runnable command:
+
+```powershell
+node lib\foundry\gates\smoke-check.js
+```
+
+It proves:
+
+1. A payload with a fake bearer secret is blocked pre-dispatch.
+2. A clean payload passes, writes exactly one audit line, and the audit contains a SHA-256 hash instead of payload text.
+
+#### Carver test coverage needed
+
+- Secret scan blocks AWS keys, private keys, JWTs, bearer tokens, API keys, connection strings, and contextual password/client-secret fields.
+- Secret scan does not log matched secret values.
+- Secret scan serialization/scanner exception still blocks (`scan throws -> still blocks`).
+- Provider `fetchFn` is never called on a secret block.
+- Audit writes exactly one JSONL record for success, provider error, auth failure, and gate block.
+- Audit records hash-not-payload and never includes raw payload content.
+- Audit write failure degrades gracefully with a warning and does not change route result.
+
+
+
+### 2026-06-25T22:00:00-05:00: Sydnor — Foundry CLI Surface
+
+**Date:** 2026-06-25T22:00:00-05:00
+**Branch:** foundry-integration
+**Scope:** Phase 1 `p1-cli`: expose Foundry runtime through the existing `secops-squad` CLI.
+
+#### Command surface
+
+Registered command: `secops-squad foundry`
+
+Subcommands:
+
+- `secops-squad foundry status`
+  - Calls `loadFoundryConfig(process.cwd())`.
+  - Prints configured/not-configured, active model, deployment, provider, and redacted endpoint host.
+  - Never prints tokens, API keys, or raw secret-bearing config.
+  - Missing/disabled/invalid config fails closed with a non-zero exit code.
+
+- `secops-squad foundry route`
+  - Inputs:
+    - `--prompt <text>`
+    - `--file <path>`
+    - `--payload <json-or-file>`
+    - Optional `--deployment <model_id-or-deployment_name>`
+    - Optional `--system <text>`, `--max-tokens <n>`, `--timeout-ms <n>`, `--json`
+  - Prints extracted model text on success, or raw provider data when `--json` is used.
+  - Prints clean `{ok:false}` error codes on failure with gate/reason/status where present; no stack traces.
+
+#### Registration point
+
+The command is registered in `cli/index.js` using the existing `COMMANDS` table:
+
+```js
+foundry: {
+  description: "Inspect and route requests through Azure AI Foundry",
+  usage: "secops-squad foundry [status|route --prompt <text>|route --file <path>|route --payload <json-or-file>]",
+  module: "./commands/foundry.js",
+}
+```
+
+The implementation lives in `cli/commands/foundry.js` and mirrors the existing command-module convention: `module.exports = { run }`, `process.cwd()` as root, subcommand switch, and `process.exit(1)` for CLI failures.
+
+#### P0 safety gates
+
+The production route path always attaches Kima's required P0 gate set:
+
+```js
+await routeToFoundry({
+  rootDir,
+  deploymentName,
+  payload,
+  hooks: createFoundrySafetyHooks(),
+  timeoutMs,
+});
+```
+
+`createFoundrySafetyHooks()` returns:
+
+```js
+{
+  preDispatch: [secretScan],
+  postDispatch: [audit],
+}
+```
+
+There is no CLI flag or route branch that disables or replaces these hooks. The wrong thing should be hard.
+
+#### Carver test asks
+
+Carver should cover:
+
+1. `foundry status` with no `.secops/foundry.yaml` exits non-zero and prints a fail-closed/not-configured message.
+2. `foundry status` with valid config prints provider, active model, deployment, and redacted endpoint host only.
+3. `foundry route --prompt ...` calls `routeToFoundry()` with `hooks.preDispatch` containing `secret-scan` and `hooks.postDispatch` containing `audit`.
+4. The route subcommand cannot execute without the P0 gates; there should be no flag/path that omits `createFoundrySafetyHooks()`.
+5. Route failures print clean error codes (`foundry-not-configured`, `foundry-gate-blocked`, etc.) with no stack trace and no secret values.
+6. `--file` and `--payload` inputs build the expected payload and fail cleanly on unreadable files or invalid JSON.
+
+
+
+### 2026-06-25T22:10:00-05:00: Carver — Foundry Phase 1 Verdict (FAIL — F-002 found)
+
+**Date:** 2026-06-25T22:10:00-05:00  
+**Branch:** foundry-integration  
+**Reviewer:** Carver (QA/Test, reviewer authority)
+
+#### Test Runs
+
+- `node --test lib/foundry/**/*.test.js`: **96 tests**, 22 suites, **95 pass**, **1 fail**, 0 skipped, duration 458.0621ms.
+- `npm test`: **322 tests**, 59 suites, **321 pass**, **1 fail**, 0 skipped, duration 482.6075ms.
+- Coverage: `node --experimental-test-coverage --test lib/foundry/**/*.test.js` reported **82.37% line coverage** across the Foundry test target (branch 66.67%, funcs 79.59%). Coverage clears the 80% line bar, but the suite is red.
+
+#### Six P0 Merge Gates
+
+1. **Node.js implementation, no Python in `lib/`: PASS**  
+   No `lib/**/*.py`; no Python implementation patterns found in `lib/foundry`.
+2. **`npm test` + >=80% coverage on `lib/foundry`: FAIL**  
+   Coverage is 82.37%, but `npm test` fails. Red tests do not merge.
+3. **Schema reconciled and tested: PASS**  
+   Existing schema regression tests cover canonical `.secops/foundry.yaml` snake_case and F-001 partial config behavior.
+4. **Secret-scan gate test: FAIL**  
+   Secret classes block, but scan-exception redaction fails. See F-002.
+5. **Fallback contract test: PASS**  
+   Anthropic and OpenAI provider matrices cover 200, 401, 403, 404, 429, network rejection, timeout, request URL/header shape, and bearer vs API-key auth. Non-200 paths assert `{ok:false}` with no thrown exception.
+6. **F-001 fail-closed regression test: PASS**  
+   Missing endpoint returns `loadFoundryConfig() === null`; `routeToFoundry()` returns `{ok:false,error:'foundry-not-configured'}` before fetch.
+
+#### Findings
+
+##### F-002 — P0 blocker — Secret-scan fail-closed path leaks exception text into returned reason
+
+**Owner to fix:** Sydnor (Platform Dev), not Kima, because Kima authored the safety gate and reviewer lockout requires a different fixer.
+
+**Repro:**
+
+```powershell
+node --test lib/foundry/gates/secret-scan.test.js
+```
+
+**Failure:** `createSecretScanGate().run()` catches scanner exceptions and returns:
+
+```js
+{ ok:false, reason:`secret-scan failed closed: ${message}` }
+```
+
+If scanner/serialization exception text contains a secret-shaped value, the returned route reason leaks it to the caller/CLI. The test injects a throwing rule whose error message contains `Bearer scanthrowsecretvalue1234567890`; that value appears in `result.reason`.
+
+**Expected:** fail closed with a generic redacted reason, e.g. `secret-scan failed closed (<redacted>)`, while logs also remain redacted.
+
+#### Overall Phase 1 Verdict
+
+**FAIL.** The routing/provider/audit surface is substantially covered and F-001 is fixed, but the secret-scan fail-closed path leaks sensitive exception text and the full test suite is red. The merge bar is strict: no merge until F-002 is fixed by a different agent and `npm test` is green.
+
+
+
+### 2026-06-25T22:20:00-05:00: Sydnor — Foundry F-002 secret-scan fail-closed redaction
+
+**Date:** 2026-06-25T22:20:00-05:00
+
+#### Change
+
+Fail-closed behavior is preserved: scan exceptions still return `ok:false` and block egress.
+
+#### Reason string
+
+Before:
+```js
+`secret-scan failed closed: ${message}`
+```
+
+After:
+```js
+'secret-scan failed closed (<redacted>)'
+```
+
+#### Log string
+
+Before catch-path call:
+```js
+warn(logger, 'scan-error')
+```
+
+Before emitted log:
+```text
+[foundry/secret-scan] blocked outbound payload: rule=scan-error indicator=<redacted:scan-error>
+```
+
+After catch-path call:
+```js
+warn(logger, `scan-error:${errorTypeOf(err)}`)
+```
+
+After emitted log for the Carver repro `Error`:
+```text
+[foundry/secret-scan] blocked outbound payload: rule=scan-error:Error indicator=<redacted:scan-error:Error>
+```
+
+Only the exception type/name is logged. The raw exception message/text is never interpolated into the returned reason or log output.
+
+#### Validation
+
+- `node --test lib\foundry\gates\secret-scan.test.js`: tests 7, suites 1, pass 7, fail 0, cancelled 0, skipped 0, todo 0, duration_ms 95.7075
+- `node --test "lib\foundry\**\*.test.js"`: tests 96, suites 22, pass 96, fail 0, cancelled 0, skipped 0, todo 0, duration_ms 461.1062
+- `npm test`: tests 322, suites 59, pass 322, fail 0, cancelled 0, skipped 0, todo 0, duration_ms 461.753
+
+
+
+### 2026-06-25T22:30:00-05:00: Carver — Foundry Phase 1 Re-Verification (PASS — CLEARED FOR MERGE)
+
+**Date:** 2026-06-25T22:30:00-05:00  
+**Reviewer:** Carver (QA/Test)  
+**Branch:** foundry-integration  
+**Scope:** Re-verify F-002 fix and Phase 1 P0 merge gates after Sydnor commit `faa913b`.
+
+#### Secret-scan fail-closed catch path
+
+Reviewed `lib/foundry/gates/secret-scan.js` directly. Verdict: **PASS**.
+
+- Fails closed on scanner exception: `catch` returns `{ ok: false, reason: ... }`.
+- Returned reason is generic: `secret-scan failed closed (<redacted>)`.
+- Returned reason does **not** interpolate `err.message` or payload content.
+- Logging uses error type only: `scan-error:${errorTypeOf(err)}`.
+- `errorTypeOf(err)` returns `err.name` or `Error`; it does **not** log raw exception text.
+
+#### Test re-run evidence
+
+Commands were run locally on `foundry-integration`; I did not trust the report.
+
+| Command | Tests | Suites | Pass | Fail | Skipped | Todo | Result |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `node --test lib/foundry/gates/secret-scan.test.js` | 7 | 1 | 7 | 0 | 0 | 0 | PASS |
+| `node --test lib/foundry/**/*.test.js` | 96 | 22 | 96 | 0 | 0 | 0 | PASS |
+| `npm test` | 322 | 59 | 322 | 0 | 0 | 0 | PASS |
+
+F-002 regression test status: **RESOLVED**. The test `fails closed if scanning throws and does not leak the payload secret` now passes and asserts `Bearer scanthrowsecretvalue1234567890` is absent from `result.reason` and warning logs.
+
+#### Coverage evidence
+
+Command: `node --experimental-test-coverage --test lib/foundry/**/*.test.js`
+
+- Tests: 96
+- Suites: 22
+- Pass: 96
+- Fail: 0
+- Reported line coverage: **82.36% all files**
+- This clears the Phase 1 merge bar requiring `lib/foundry` coverage >=80%. Barely, but it clears. Coverage is a floor, not a trophy.
+
+#### Six P0 merge-gate verdict
+
+| Gate | Requirement | Verdict | Evidence |
+|---:|---|---|---|
+| 1 | `lib/foundry/` exists as Node.js/CommonJS; zero Python in `lib/` | PASS | `lib/foundry` implementation is Node.js/CommonJS; `lib/**/*.py` search found no files. |
+| 2 | `npm test` passes with >=80% line coverage on `lib/foundry/**` | PASS | `npm test`: 322/322 pass. Coverage run: 82.36% line coverage. |
+| 3 | Config schema reconciled to snake_case; schema-alignment test asserts field names | PASS | Foundry suite includes schema-alignment regression tests; `node --test lib/foundry/**/*.test.js`: 96/96 pass. |
+| 4 | Safety gate test blocks private key / AWS key payloads before HTTP dispatch | PASS | Secret-scan suite: 7/7 pass, including AWS key and private-key blocking/redaction. Route tests confirm pre-dispatch hooks block before egress. F-002 regression also passes. |
+| 5 | Fallback contract test: 401/404/429/timeout/ECONNREFUSED-style network rejection returns `{ok:false,error}`; no throw/crash | PASS | Provider fallback tests for Anthropic and OpenAI pass in the Foundry suite: HTTP 401/403/404/429, network rejection, and timeout. |
+| 6 | Deploy script API version is verified/current (`2025-04-01-preview`) | PASS | `scripts/deploy-foundry-fable5.ps1` and `.sh` use `2025-04-01-preview`; no `2026-05-15-preview` remains in those scripts. |
+
+#### Findings
+
+No new findings. F-002 is resolved.
+
+#### Overall verdict
+
+**Phase 1: PASS. CLEARED FOR MERGE.**
+
+Carver note: the coverage bar is met, not generous. Do not let future Foundry code land without keeping this above the floor.
