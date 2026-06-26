@@ -1,0 +1,24 @@
+# Fixture: Foundry disabled (enabled: false)
+# Used by: Carver's tests — loadFoundryConfig() should return null
+schema_version: "1.0"
+foundry:
+  enabled: false
+  resource_name: "secops-foundry"
+  endpoint: "https://secops-foundry.cognitiveservices.azure.com"
+  location: "eastus2"
+  resource_group: "rg-secops-ai"
+  api_version: "2025-04-01-preview"
+  active_model: "claude-fable-5"
+  model_deployments:
+    - model_id: "claude-fable-5"
+      deployment_name: "fable5-secops"
+      deployment_type: "global-standard"
+      provider: "anthropic"
+      status: "active"
+      api_path: "/anthropic/v1/messages"
+      reasoning_model: false
+  pricing:
+    input_per_million_tokens: 10.00
+    output_per_million_tokens: 50.00
+    prompt_cache_discount_pct: 90
+  cost_ceiling_usd: 5.00

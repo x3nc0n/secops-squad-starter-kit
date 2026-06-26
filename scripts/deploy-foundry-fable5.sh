@@ -50,6 +50,10 @@ MODEL_VERSION="1"
 DEPLOYMENT_TYPE="GlobalStandard"
 CAPACITY=1
 
+# ARM REST API version for CognitiveServices deployments.
+# Verified stable — see https://learn.microsoft.com/rest/api/cognitiveservices/
+ARM_API_VERSION="2025-04-01-preview"
+
 # ---------------------------------------------------------------------------
 # Colors
 # ---------------------------------------------------------------------------
@@ -250,10 +254,11 @@ get_endpoint_url() {
         --query "properties.endpoint" -o tsv 2>/dev/null || true)
 
     if [[ -n "$endpoint" ]]; then
-        # Normalize to Anthropic v1 path
-        echo "${endpoint%/}/anthropic/v1/"
+        # Return the clean base URL — no provider path suffix.
+        # api_path per deployment carries the route (e.g. /anthropic/v1/messages).
+        echo "${endpoint%/}"
     else
-        echo "https://${RESOURCE_NAME}.services.ai.azure.com/anthropic/v1/"
+        echo "https://${RESOURCE_NAME}.cognitiveservices.azure.com"
     fi
 }
 
@@ -279,28 +284,29 @@ write_foundry_config() {
 # This file tells secops-squad agents that Fable 5 is available for deep analysis tasks.
 #
 # DEPRECATED_WHEN: claude-fable-5 is available in the GitHub Copilot model catalog.
-# At that point, remove this file and unset foundry.enabled in your config.
+# At that point, remove this file and set foundry.enabled: false in your config.
+schema_version: \"1.0\"
 foundry:
   enabled: true
   resource_name: \"${RESOURCE_NAME}\"
   endpoint: \"${endpoint}\"
   location: \"${LOCATION}\"
   resource_group: \"${RESOURCE_GROUP}\"
+  api_version: \"2025-04-01-preview\"
+  active_model: \"claude-fable-5\"
   model_deployments:
     - model_id: \"claude-fable-5\"
       deployment_name: \"${DEPLOYMENT_NAME}\"
       deployment_type: \"global-standard\"
+      provider: \"anthropic\"
+      status: \"active\"
+      api_path: \"/anthropic/v1/messages\"
+      reasoning_model: false
   pricing:
     input_per_million_tokens: 10.00
     output_per_million_tokens: 50.00
     prompt_cache_discount_pct: 90
-  safety_policy:
-    retention_days: 30
-    note: \"30-day data retention required by Anthropic safety policy.\"
-  deprecation_note: >
-    This add-on will be deprecated when claude-fable-5 is available
-    in the GitHub Copilot model catalog. Remove this file and set
-    foundry.enabled: false at that time.
+  cost_ceiling_usd: 5.00
 "
 
     if [[ "$WHAT_IF" == "true" ]]; then

@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/x3nc0n/secops-squad-starter-kit/secops-squad.config.schema.json",
+  "$comment": "Foundry/Azure AI configuration is NOT stored here. It lives in .secops/foundry.yaml (see .secops/foundry.yaml.example for the canonical snake_case schema). The former 'foundry' properties block was removed to eliminate camelCase vs snake_case drift.",
   "title": "secops-squad configuration",
   "description": "Configuration schema for secops-squad projects",
   "type": "object",
@@ -76,59 +77,6 @@
         ]
       },
       "uniqueItems": true
-    },
-    "foundry": {
-      "type": "object",
-      "description": "Azure AI Foundry model deployment configuration (optional). Enables add-on models like claude-fable-5 for deep analysis tasks. DEPRECATED_WHEN: claude-fable-5 available in GitHub Copilot model catalog.",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Whether Azure AI Foundry add-on models are active. Set false to disable without removing config."
-        },
-        "resourceName": {
-          "type": "string",
-          "description": "Azure AI Foundry (CognitiveServices/AIServices) resource name"
-        },
-        "endpoint": {
-          "type": "string",
-          "format": "uri",
-          "description": "Foundry endpoint base URL, e.g. https://{resource}.services.ai.azure.com/anthropic/v1/"
-        },
-        "modelDeployments": {
-          "type": "array",
-          "description": "List of model deployments available on this Foundry resource",
-          "items": {
-            "type": "object",
-            "required": ["modelId", "deploymentName"],
-            "properties": {
-              "modelId": {
-                "type": "string",
-                "description": "Canonical model identifier, e.g. claude-fable-5"
-              },
-              "deploymentName": {
-                "type": "string",
-                "description": "Name of the deployment within the Foundry resource"
-              },
-              "deploymentType": {
-                "type": "string",
-                "enum": ["global-standard", "regional-standard", "regional-ptu"],
-                "description": "Azure AI deployment SKU type"
-              }
-            },
-            "additionalProperties": false
-          }
-        },
-        "location": {
-          "type": "string",
-          "description": "Azure region where the Foundry resource is deployed, e.g. eastus2"
-        },
-        "resourceGroup": {
-          "type": "string",
-          "description": "Azure resource group containing the Foundry resource"
-        }
-      },
-      "additionalProperties": false
     },
     "skills": {
       "type": "object",

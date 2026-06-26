@@ -1,0 +1,8 @@
+# Fixture: intentionally malformed YAML (unmatched quote + bad indent)
+# Used by: Carver's tests — loadFoundryConfig() should return null (parse error)
+foundry:
+  enabled: true
+  resource_name: "secops-foundry
+  endpoint: "https://secops-foundry.cognitiveservices.azure.com"
+    bad_indent_here: true
+  active_model: "claude-fable-5"

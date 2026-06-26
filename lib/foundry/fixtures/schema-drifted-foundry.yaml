@@ -1,0 +1,16 @@
+# Fixture: old/drifted schema shape — snake_case keys present but missing
+# required canonical fields: active_model and deployment status.
+# Represents the pre-fix foundry.yaml.example shape.
+# Used by: Carver's tests — loadFoundryConfig() should return null
+#          (active_model absent → no active deployment can be resolved)
+foundry:
+  enabled: true
+  resource_name: "secops-foundry"
+  endpoint: "https://secops-foundry.services.ai.azure.com/anthropic/v1/"
+  location: "eastus2"
+  resource_group: "rg-secops-ai"
+  model_deployments:
+    - model_id: "claude-fable-5"
+      deployment_name: "fable5-secops"
+      deployment_type: "global-standard"
+  deprecation_note: "Remove when Fable 5 is in GitHub Copilot model catalog"

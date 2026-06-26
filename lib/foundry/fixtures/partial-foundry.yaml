@@ -1,0 +1,22 @@
+# Fixture: partial config — enabled:true, active deployment present, but
+# the required "endpoint" field is absent.
+# Used by: Carver's tests — loadFoundryConfig() returns a non-null object
+#          (validation only checks enabled/active_model/active-deployment, not endpoint).
+#          resolveEndpoint() should handle missing endpoint gracefully (empty base URL).
+schema_version: "1.0"
+foundry:
+  enabled: true
+  resource_name: "secops-foundry"
+  # endpoint intentionally omitted to test missing-required-field behavior
+  location: "eastus2"
+  resource_group: "rg-secops-ai"
+  api_version: "2025-04-01-preview"
+  active_model: "claude-fable-5"
+  model_deployments:
+    - model_id: "claude-fable-5"
+      deployment_name: "fable5-secops"
+      deployment_type: "global-standard"
+      provider: "anthropic"
+      status: "active"
+      api_path: "/anthropic/v1/messages"
+      reasoning_model: false

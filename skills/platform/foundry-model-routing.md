@@ -19,32 +19,40 @@ Before routing any task to Foundry, check whether the add-on is deployed:
 5. If any check fails → fall back to standard model. Do NOT error out.
 ```
 
-**Detection pseudo-code (Python):**
-```python
-import yaml, os
+**Detection fields (canonical schema — all snake_case):**
+- `foundry.enabled` — must be `true`
+- `foundry.active_model` — model_id of the deployment to use
+- `foundry.model_deployments[].status` — must be `"active"` for the matching entry
+- `foundry.model_deployments[].provider` — `"anthropic"` | `"openai"` | `"openai-reasoning"`
+- `foundry.model_deployments[].api_path` — provider-specific REST route (anthropic only)
+- `foundry.model_deployments[].reasoning_model` — `true` for o-series reasoning models
+- `foundry.api_version` — REST api-version for OpenAI-compatible endpoints
 
-def foundry_model_available(project_root: str) -> dict | None:
-    config_path = os.path.join(project_root, ".secops", "foundry.yaml")
-    if not os.path.exists(config_path):
-        return None
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f)
-    foundry = cfg.get("foundry", {})
-    if not foundry.get("enabled", False):
-        return None
-    active_id = foundry.get("active_model")
-    deployments = foundry.get("model_deployments", [])
-    active = next((d for d in deployments if d.get("model_id") == active_id and d.get("status") == "active"), None)
-    if not active:
-        return None
-    return {
-        "endpoint": foundry["endpoint"],
-        "api_version": foundry.get("api_version", "2025-04-01-preview"),
-        "deployment_name": active["deployment_name"],
-        "api_path": active.get("api_path", ""),
-        "reasoning_model": active.get("reasoning_model", False),
-        "resource_name": foundry["resource_name"],
-    }
+**Detection (Node.js / CommonJS):**
+```js
+// From a skill or CLI command — path assumes running from project root
+const { loadFoundryConfig } = require('../../lib/foundry/config');
+
+function foundryModelAvailable(projectRoot) {
+  const data = loadFoundryConfig(projectRoot);
+  if (!data) return null;  // disabled, missing, or no active deployment
+
+  const foundry = data.foundry;
+  const active = foundry.model_deployments.find(
+    (d) => d.model_id === foundry.active_model && d.status === 'active'
+  );
+  if (!active) return null;
+
+  return {
+    endpoint: foundry.endpoint,          // clean base URL
+    api_version: foundry.api_version,
+    deployment_name: active.deployment_name,
+    api_path: active.api_path,           // e.g. "/anthropic/v1/messages"
+    reasoning_model: active.reasoning_model || false,
+    provider: active.provider,           // "anthropic" | "openai" | "openai-reasoning"
+    resource_name: foundry.resource_name,
+  };
+}
 ```
 
 ---
@@ -80,68 +88,119 @@ Route to Fable 5 **only** for tasks that genuinely benefit from its extended con
 Foundry models support **two auth modes** — use whichever fits your deployment:
 
 **Mode A: Azure Entra ID (recommended for automated/agent use)**
-```python
-import subprocess
+```js
+const { getFoundryToken } = require('../../lib/foundry/auth');
 
-def get_entra_token() -> str:
-    result = subprocess.run(
-        ["az", "account", "get-access-token",
-         "--resource", "https://cognitiveservices.azure.com",
-         "--query", "accessToken", "-o", "tsv"],
-        capture_output=True, text=True, check=True
-    )
-    return result.stdout.strip()
+// Synchronous — checks cache first, then az CLI, then returns {ok, token} or {ok:false, error}
+const auth = getFoundryToken();
+if (!auth.ok) throw new Error(`Foundry auth failed: ${auth.error}`);
+const bearerToken = auth.token;
 ```
 
 **Mode B: API Key**
-```python
-import os
-api_key = os.environ.get("FOUNDRY_API_KEY")
+```js
+// Set FOUNDRY_API_KEY in environment — getFoundryToken() picks it up automatically.
+// No code change needed; the env var takes priority over az CLI.
 ```
 
-### OpenAI-compatible models (o4-mini, GPT-5.x)
+### Using the public provider API (Phase 1 — via lib/foundry/index.js)
 
-```python
-import openai
+```js
+// getFoundryProvider returns a {complete(messages, opts)} object or null.
+const { getFoundryProvider } = require('../../lib/foundry');
 
-def get_foundry_openai_client(endpoint: str, api_version: str) -> openai.AzureOpenAI:
-    token = get_entra_token()
-    return openai.AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_version=api_version,
-        azure_ad_token=token,
-    )
-
-# Usage
-foundry = foundry_model_available(".")
-if foundry:
-    client = get_foundry_openai_client(foundry["endpoint"], foundry["api_version"])
-    params = {
-        "model": foundry["deployment_name"],
-        "messages": [{"role": "user", "content": sarif_content}],
-    }
-    if foundry["reasoning_model"]:
-        params["max_completion_tokens"] = 4096
-        params["reasoning_effort"] = "medium"
-    else:
-        params["max_tokens"] = 4096
-    response = client.chat.completions.create(**params)
+async function analyzeWithFoundry(projectRoot, messages) {
+  const provider = await getFoundryProvider(projectRoot);
+  if (!provider) {
+    // Foundry unavailable — fall back to standard model
+    return null;
+  }
+  return provider.complete(messages, { maxTokens: 4096 });
+  // Returns: {ok, content, usage, latencyMs, provider, cached}
+}
 ```
 
-### Anthropic models (claude-fable-5, when available)
+### Direct fetch — Anthropic models (claude-fable-5)
 
-```python
-import anthropic
+```js
+const { loadFoundryConfig, resolveEndpoint } = require('../../lib/foundry/config');
+const { getFoundryToken } = require('../../lib/foundry/auth');
 
-def get_fable5_client(endpoint: str, deployment_name: str) -> anthropic.Anthropic:
-    token = get_entra_token()
-    return anthropic.Anthropic(
-        base_url=f"{endpoint}/anthropic/v1",
-        default_headers={
-            "Authorization": f"Bearer {token}",
-            "x-ms-model-mesh-model-name": deployment_name,
-        },
-    )
+async function callFoundryAnthropic(projectRoot, messages, opts = {}) {
+  const data = loadFoundryConfig(projectRoot);
+  if (!data) throw new Error('Foundry not available');
+
+  const foundry = data.foundry;
+  const deployment = foundry.model_deployments.find(
+    (d) => d.model_id === foundry.active_model && d.status === 'active'
+  );
+
+  const url = resolveEndpoint(data, deployment);
+  const auth = getFoundryToken();
+  if (!auth.ok) throw new Error(`Foundry auth failed: ${auth.error}`);
+
+  const body = {
+    model: deployment.deployment_name,
+    max_tokens: opts.maxTokens || 4096,
+    messages,
+  };
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${auth.token}`,
+      'Content-Type': 'application/json',
+      'x-ms-model-mesh-model-name': deployment.deployment_name,
+    },
+    body: JSON.stringify(body),
+  });
+
+  return resp.json();
+}
+```
+
+### Direct fetch — OpenAI / reasoning models (o4-mini, GPT-5.x)
+
+```js
+const { loadFoundryConfig, resolveEndpoint } = require('../../lib/foundry/config');
+const { getFoundryToken } = require('../../lib/foundry/auth');
+
+async function callFoundryOpenAI(projectRoot, messages, opts = {}) {
+  const data = loadFoundryConfig(projectRoot);
+  if (!data) throw new Error('Foundry not available');
+
+  const foundry = data.foundry;
+  const deployment = foundry.model_deployments.find(
+    (d) => d.model_id === foundry.active_model && d.status === 'active'
+  );
+
+  const url = resolveEndpoint(data, deployment); // builds ?api-version= automatically
+  const auth = getFoundryToken();
+  if (!auth.ok) throw new Error(`Foundry auth failed: ${auth.error}`);
+
+  const body = {
+    model: deployment.deployment_name,
+    messages,
+  };
+
+  if (deployment.reasoning_model) {
+    body.max_completion_tokens = opts.maxTokens || 4096;
+    body.reasoning_effort = opts.reasoningEffort || 'medium';
+  } else {
+    body.max_tokens = opts.maxTokens || 4096;
+  }
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${auth.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  return resp.json();
+}
 ```
 
 ### Raw curl — o4-mini (current)

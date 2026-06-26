@@ -69,10 +69,14 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$MODEL_ID       = "claude-fable-5"
-$MODEL_VERSION  = "1"
+$MODEL_ID        = "claude-fable-5"
+$MODEL_VERSION   = "1"
 $DEPLOYMENT_TYPE = "GlobalStandard"
 $CAPACITY        = 1   # Thousand tokens per minute, minimum unit
+
+# ARM REST API version for CognitiveServices deployments.
+# Verified stable — see https://learn.microsoft.com/rest/api/cognitiveservices/
+$ARM_API_VERSION = "2025-04-01-preview"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -192,15 +196,15 @@ function Ensure-ModelDeployment {
     Write-Host "[....] Deploying model: $MODEL_ID as '$DeployName' (Global Standard)" -ForegroundColor Cyan
 
     # The az CLI does not yet support --model-provider-data for Anthropic models.
-    # Use the ARM REST API directly with api-version 2026-05-15-preview.
-    if ($PSCmdlet.ShouldProcess("PUT deployments/$DeployName (REST API 2026-05-15-preview)", "Deploy Fable 5 model")) {
+    # Use the ARM REST API directly (api-version constant defined at top of script).
+    if ($PSCmdlet.ShouldProcess("PUT deployments/$DeployName (REST API $ARM_API_VERSION)", "Deploy Fable 5 model")) {
         $token = az account get-access-token --resource https://management.azure.com --query accessToken -o tsv
         if (-not $token) {
             Write-Host "[FAIL] Could not acquire ARM access token." -ForegroundColor Red
             exit 1
         }
 
-        $uri = "https://management.azure.com/subscriptions/$SubId/resourceGroups/$RG/providers/Microsoft.CognitiveServices/accounts/$ResourceName/deployments/${DeployName}?api-version=2026-05-15-preview"
+        $uri = "https://management.azure.com/subscriptions/$SubId/resourceGroups/$RG/providers/Microsoft.CognitiveServices/accounts/$ResourceName/deployments/${DeployName}?api-version=$ARM_API_VERSION"
 
         $body = @"
 {"sku":{"name":"$DEPLOYMENT_TYPE","capacity":$CAPACITY},"properties":{"model":{"format":"Anthropic","name":"$MODEL_ID","version":"$MODEL_VERSION"},"modelProviderData":{"organizationName":"Microsoft","countryCode":"US","industry":"technology"}}}
@@ -252,12 +256,12 @@ function Get-EndpointUrl {
         --only-show-errors 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
 
     if ($resource -and $resource.properties.endpoint) {
-        # Normalize to the Anthropic v1 path
-        $base = $resource.properties.endpoint.TrimEnd('/')
-        return "$base/anthropic/v1/"
+        # Return the clean base URL — no provider path suffix.
+        # api_path per deployment carries the route (e.g. /anthropic/v1/messages).
+        return $resource.properties.endpoint.TrimEnd('/')
     }
-    # Fallback to well-known pattern
-    return "https://$ResourceName.services.ai.azure.com/anthropic/v1/"
+    # Fallback to well-known cognitiveservices base URL pattern
+    return "https://$ResourceName.cognitiveservices.azure.com"
 }
 
 function Write-FoundryConfig {
@@ -278,28 +282,29 @@ function Write-FoundryConfig {
 # This file tells secops-squad agents that Fable 5 is available for deep analysis tasks.
 #
 # DEPRECATED_WHEN: claude-fable-5 is available in the GitHub Copilot model catalog.
-# At that point, remove this file and unset foundry.enabled in your config.
+# At that point, remove this file and set foundry.enabled: false in your config.
+schema_version: "1.0"
 foundry:
   enabled: true
   resource_name: "$ResName"
   endpoint: "$Endpoint"
   location: "$Loc"
   resource_group: "$RG"
+  api_version: "2025-04-01-preview"
+  active_model: "claude-fable-5"
   model_deployments:
     - model_id: "claude-fable-5"
       deployment_name: "$DeployName"
       deployment_type: "global-standard"
+      provider: "anthropic"
+      status: "active"
+      api_path: "/anthropic/v1/messages"
+      reasoning_model: false
   pricing:
     input_per_million_tokens: 10.00
     output_per_million_tokens: 50.00
     prompt_cache_discount_pct: 90
-  safety_policy:
-    retention_days: 30
-    note: "30-day data retention required by Anthropic safety policy."
-  deprecation_note: >
-    This add-on will be deprecated when claude-fable-5 is available
-    in the GitHub Copilot model catalog. Remove this file and set
-    foundry.enabled: false at that time.
+  cost_ceiling_usd: 5.00
 "@
 
     if ($PSCmdlet.ShouldProcess($configPath, "Write .secops/foundry.yaml")) {
