@@ -79,3 +79,16 @@
 - Decision written to `.squad/decisions/inbox/carver-foundry-test-strategy.md`
 - Reusable skill written to `.squad/skills/testing-external-http-module.md` (mock fetch pattern, sequence mock, token expiry pattern, safety/redaction pattern, fixture layout)
 - Key lesson: when docs ship without a single runnable test, the schema contracts are always aspirational, not actual — test-first catches schema drift before it becomes integration debt
+
+📌 **Foundry Phase 0 Tests Written and Green** (2026-06-25)
+- Created `lib/foundry/config.test.js` — 34 tests across 8 describe blocks (all pass)
+- Created `lib/foundry/auth.test.js` — 25 tests across 7 describe blocks (all pass)
+- Total: 59 new tests; full suite npm test = 285/285 pass, 0 fail
+- Test file locations: `lib/foundry/config.test.js`, `lib/foundry/auth.test.js`
+- Fixture contract confirmed: valid→non-null, disabled→null, malformed→null, schema-drifted→null, partial→non-null, no-active-deployment→null
+- Fixture import pattern: read raw YAML from `lib/foundry/fixtures/`, write to `mkdtempSync` temp dirs, clean up in after()/finally
+- CJS module import in ESM test file: `createRequire(import.meta.url)` (matches graph-security pattern)
+- SAFETY SMELL found and documented (non-blocking): `partial-foundry.yaml` (no endpoint) returns non-null from `loadFoundryConfig()` — fail-open; `resolveEndpoint()` silently produces a relative URL (e.g., `/anthropic/v1/messages`). Phase 1 recommendation: validate endpoint presence in `loadFoundryConfig()` and return null if absent (fail-closed).
+- Schema regression test covers: example YAML parses valid, has all canonical snake_case fields, no camelCase keys; JSON schema has no `modelDeployments` key (drift removed), has $comment pointing to foundry.yaml
+- Auth test injection: `execFn` parameter used throughout — no live az CLI or network calls; `clearTokenCache()` called in beforeEach/afterEach to isolate tests
+- Phase 0 exit gate verdict: PASS (see `.squad/decisions/inbox/carver-foundry-phase0-verdict.md`)
