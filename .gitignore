@@ -15,5 +15,6 @@ secops-squad.config.json
 # Foundry: ignore the generated deployment config (contains tenant-specific resource names).
 # Ship .secops/foundry.yaml.example as the template; the deploy script writes foundry.yaml locally.
 .secops/foundry.yaml
+.secops/foundry-audit.jsonl
 # Dependencies
 node_modules/
