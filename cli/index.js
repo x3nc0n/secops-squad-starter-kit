@@ -40,6 +40,11 @@ const COMMANDS = {
     usage: "secops-squad workspace [connect|status|disconnect]",
     module: "./commands/workspace.js",
   },
+  foundry: {
+    description: "Inspect and route requests through Azure AI Foundry",
+    usage: "secops-squad foundry [status|route --prompt <text>|route --file <path>|route --payload <json-or-file>]",
+    module: "./commands/foundry.js",
+  },
   kql: {
     description: "KQL query tools — validate, format, explain",
     usage: "secops-squad kql validate <file|glob> [--format table|json]",

@@ -9,15 +9,13 @@
 
 ## 1. Detection — Is a Foundry Model Available?
 
-Before routing any task to Foundry, check whether the add-on is deployed:
+Before routing any task to Foundry, check whether the add-on is deployed with the real CLI:
 
+```powershell
+node cli\index.js foundry status
 ```
-1. Look for .secops/foundry.yaml in the project root.
-2. Parse the YAML. Check foundry.enabled == true.
-3. Read foundry.active_model to determine which model to use.
-4. Find the matching entry in foundry.model_deployments where status == "active".
-5. If any check fails → fall back to standard model. Do NOT error out.
-```
+
+`status` calls `loadFoundryConfig(projectRoot)`. If `.secops/foundry.yaml` is missing, disabled, malformed, missing a usable endpoint, or has no active deployment, the command fails closed with a non-zero exit code and a not-configured message. It never prints tokens or secrets.
 
 **Detection fields (canonical schema — all snake_case):**
 - `foundry.enabled` — must be `true`
@@ -30,14 +28,13 @@ Before routing any task to Foundry, check whether the add-on is deployed:
 
 **Detection (Node.js / CommonJS):**
 ```js
-// From a skill or CLI command — path assumes running from project root
 const { loadFoundryConfig } = require('../../lib/foundry/config');
 
 function foundryModelAvailable(projectRoot) {
-  const data = loadFoundryConfig(projectRoot);
-  if (!data) return null;  // disabled, missing, or no active deployment
+  const config = loadFoundryConfig(projectRoot);
+  if (!config) return null;  // disabled, missing, malformed, or no active deployment
 
-  const foundry = data.foundry;
+  const foundry = config.foundry;
   const active = foundry.model_deployments.find(
     (d) => d.model_id === foundry.active_model && d.status === 'active'
   );
@@ -81,146 +78,69 @@ Route to Fable 5 **only** for tasks that genuinely benefit from its extended con
 
 ---
 
-## 3. Calling the Endpoint
+## 3. Calling Foundry
 
-### Authentication
+### CLI invocation
 
-Foundry models support **two auth modes** — use whichever fits your deployment:
+Use the CLI for manual or scripted routing:
 
-**Mode A: Azure Entra ID (recommended for automated/agent use)**
-```js
-const { getFoundryToken } = require('../../lib/foundry/auth');
-
-// Synchronous — checks cache first, then az CLI, then returns {ok, token} or {ok:false, error}
-const auth = getFoundryToken();
-if (!auth.ok) throw new Error(`Foundry auth failed: ${auth.error}`);
-const bearerToken = auth.token;
+```powershell
+node cli\index.js foundry route --prompt "Summarize this SARIF finding in one sentence." --max-tokens 500
+node cli\index.js foundry route --file .\analysis-prompt.txt --deployment o4-mini
+node cli\index.js foundry route --payload .\foundry-payload.json --json
 ```
 
-**Mode B: API Key**
+The production route command always calls:
+
 ```js
-// Set FOUNDRY_API_KEY in environment — getFoundryToken() picks it up automatically.
-// No code change needed; the env var takes priority over az CLI.
+await routeToFoundry({
+  rootDir,
+  deploymentName,
+  payload,
+  hooks: createFoundrySafetyHooks(),
+  timeoutMs,
+});
 ```
 
-### Using the public provider API (Phase 1 — via lib/foundry/index.js)
+That attaches the required P0 hook set every time:
 
 ```js
-// getFoundryProvider returns a {complete(messages, opts)} object or null.
-const { getFoundryProvider } = require('../../lib/foundry');
+{
+  preDispatch: [secretScan],
+  postDispatch: [audit],
+}
+```
 
-async function analyzeWithFoundry(projectRoot, messages) {
-  const provider = await getFoundryProvider(projectRoot);
-  if (!provider) {
-    // Foundry unavailable — fall back to standard model
+### Programmatic invocation from Node.js
+
+Skills and platform code should call the public orchestrator, not provider clients directly:
+
+```js
+const { routeToFoundry } = require('../../lib/foundry');
+const { createFoundrySafetyHooks } = require('../../lib/foundry/gates');
+
+async function analyzeWithFoundry(projectRoot, prompt) {
+  const result = await routeToFoundry({
+    rootDir: projectRoot,
+    payload: {
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 4096,
+    },
+    hooks: createFoundrySafetyHooks(),
+  });
+
+  if (!result.ok) {
+    // Fail closed or fall back according to the caller's policy.
+    // Common errors: foundry-not-configured, foundry-auth-failed,
+    // foundry-gate-blocked, foundry-provider-unsupported.
     return null;
   }
-  return provider.complete(messages, { maxTokens: 4096 });
-  // Returns: {ok, content, usage, latencyMs, provider, cached}
+
+  return result.data;
 }
 ```
 
-### Direct fetch — Anthropic models (claude-fable-5)
-
-```js
-const { loadFoundryConfig, resolveEndpoint } = require('../../lib/foundry/config');
-const { getFoundryToken } = require('../../lib/foundry/auth');
-
-async function callFoundryAnthropic(projectRoot, messages, opts = {}) {
-  const data = loadFoundryConfig(projectRoot);
-  if (!data) throw new Error('Foundry not available');
-
-  const foundry = data.foundry;
-  const deployment = foundry.model_deployments.find(
-    (d) => d.model_id === foundry.active_model && d.status === 'active'
-  );
-
-  const url = resolveEndpoint(data, deployment);
-  const auth = getFoundryToken();
-  if (!auth.ok) throw new Error(`Foundry auth failed: ${auth.error}`);
-
-  const body = {
-    model: deployment.deployment_name,
-    max_tokens: opts.maxTokens || 4096,
-    messages,
-  };
-
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${auth.token}`,
-      'Content-Type': 'application/json',
-      'x-ms-model-mesh-model-name': deployment.deployment_name,
-    },
-    body: JSON.stringify(body),
-  });
-
-  return resp.json();
-}
-```
-
-### Direct fetch — OpenAI / reasoning models (o4-mini, GPT-5.x)
-
-```js
-const { loadFoundryConfig, resolveEndpoint } = require('../../lib/foundry/config');
-const { getFoundryToken } = require('../../lib/foundry/auth');
-
-async function callFoundryOpenAI(projectRoot, messages, opts = {}) {
-  const data = loadFoundryConfig(projectRoot);
-  if (!data) throw new Error('Foundry not available');
-
-  const foundry = data.foundry;
-  const deployment = foundry.model_deployments.find(
-    (d) => d.model_id === foundry.active_model && d.status === 'active'
-  );
-
-  const url = resolveEndpoint(data, deployment); // builds ?api-version= automatically
-  const auth = getFoundryToken();
-  if (!auth.ok) throw new Error(`Foundry auth failed: ${auth.error}`);
-
-  const body = {
-    model: deployment.deployment_name,
-    messages,
-  };
-
-  if (deployment.reasoning_model) {
-    body.max_completion_tokens = opts.maxTokens || 4096;
-    body.reasoning_effort = opts.reasoningEffort || 'medium';
-  } else {
-    body.max_tokens = opts.maxTokens || 4096;
-  }
-
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${auth.token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-
-  return resp.json();
-}
-```
-
-### Raw curl — o4-mini (current)
-
-```bash
-TOKEN=$(az account get-access-token \
-  --resource https://cognitiveservices.azure.com \
-  --query accessToken -o tsv)
-
-ENDPOINT="https://<your-foundry-resource>.cognitiveservices.azure.com"
-
-curl -s -X POST "${ENDPOINT}/openai/deployments/o4-mini/chat/completions?api-version=2025-04-01-preview" \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [{"role": "user", "content": "Summarize this SARIF finding in one sentence."}],
-    "max_completion_tokens": 500,
-    "reasoning_effort": "medium"
-  }'
-```
+`routeToFoundry()` handles deployment selection, endpoint resolution, Entra/API-key auth, provider routing, timeout handling, and audit. It never throws; all failures return `{ ok:false, ... }`. Do not bypass `createFoundrySafetyHooks()` in production paths.
 
 ---
 
