@@ -114,3 +114,20 @@ Carver completed Phase 1 QA on foundry-integration branch (commits db80059 → f
 - Verdict: Phase 1 PASS, CLEARED FOR MERGE
 
 Inbox merged into decisions.md. Orchestration logs in .squad/orchestration-log/. Session log in .squad/log/.
+
+---
+
+## 2026-07-08T12:14:47-05:00 — Okta Client Test Suite Written
+
+📌 **Okta API Client Test Suite Written** (2026-07-08)
+- Created `lib/okta/okta.test.js` — 164 tests across 24 describe blocks; 162 pass, 2 intentional failures documenting implementation bugs; full suite 486/484 (no regressions in prior 322)
+- Modules covered: createClient (ssws/clientCredentials/privateKeyJwt), auth (SSWS header shape + OAuth CC token acquisition + caching), utils (normalizeOrgUrl + extractNextLink), users (listUsers/getUser/listUserGroups), groups (listGroups/getGroup/listGroupMembers), apps (listApps/getApp/getAppSamlSettings/listAppUsers), policies (listPolicies/getPolicy/getPolicyRules), plus 16-assertion no-throw contract block
+- Implementation committed by Sydnor in parallel — full lib/okta/ was present; tests adapted from contract spec to actual API shapes
+- Key API shape: `client.getAuthHeader()` returns full header string (`SSWS {tok}` or `Bearer {tok}`); OAuth method names are `clientCredentials`/`privateKeyJwt` (not `oauth`); `listPolicies(client, policyType)` takes positional policyType arg
+- Critical mock gotcha: `mockFetch` must inject `content-type: application/json` — `oktaRequest` guards JSON parsing on that header; without it, `data` silently stays `null` even on 200 OK
+- Pagination: Okta Link header `<url>; rel="next"` (not OData); `extractNextLink()` in utils; `options.nextLink` cursor on all list functions; `paginatedGet()` auto-traversal helper
+- Rate-limit: HTTP 429 → reads `X-Rate-Limit-Reset` (epoch seconds); retries up to MAX_RETRIES=3; `mockFetchSequence()` drives multi-response retry tests
+- BUGS FOUND (2 intentional failing tests in `utils — normalizeOrgUrl`):
+  - `normalizeOrgUrl` uses `/\/$/.` (strips ONE slash); `https://…///` → `https://…//` (not clean)
+  - `normalizeOrgUrl` does not add `https://` when scheme is absent — silent runtime failure
+- Gaps flagged in `carver-okta-review.md`: GAP-1 (https:// normalization missing), GAP-2 (no write ops — READ-FIRST design, needs coordinator sign-off)
