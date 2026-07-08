@@ -1,0 +1,8 @@
+{
+  "agents": {
+    "lead": { "persistent_name": "Morpheus", "universe": "The Matrix", "created_at": "2026-07-08T16:43:15-05:00", "legacy_named": false, "status": "active" },
+    "secops-identity-eng": { "persistent_name": "Keymaker", "universe": "The Matrix", "created_at": "2026-07-08T16:43:15-05:00", "legacy_named": false, "status": "active" },
+    "platform-dev": { "persistent_name": "Tank", "universe": "The Matrix", "created_at": "2026-07-08T16:43:15-05:00", "legacy_named": false, "status": "active" },
+    "tester": { "persistent_name": "Seraph", "universe": "The Matrix", "created_at": "2026-07-08T16:43:15-05:00", "legacy_named": false, "status": "active" }
+  }
+}

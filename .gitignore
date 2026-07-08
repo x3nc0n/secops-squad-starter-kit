@@ -25,9 +25,6 @@ secops-squad.config.json
 .squad/decisions.md
 .squad/decisions-archive.md
 .squad/decisions/decisions.md
-.squad/casting/history.json
-.squad/casting/registry.json
-.squad/casting/policy.json
 .squad/identity/now.md
 .squad/identity/wisdom.md
 

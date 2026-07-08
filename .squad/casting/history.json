@@ -1,0 +1,13 @@
+{
+  "universe_usage_history": [
+    { "universe": "The Matrix", "assignment_id": "matrix-2026-07-08", "used_at": "2026-07-08T16:43:15-05:00" }
+  ],
+  "assignment_cast_snapshots": {
+    "matrix-2026-07-08": {
+      "universe": "The Matrix",
+      "agents": { "lead": "Morpheus", "secops-identity-eng": "Keymaker", "platform-dev": "Tank", "tester": "Seraph" },
+      "created_at": "2026-07-08T16:43:15-05:00",
+      "note": "Recast from prior Wire assignment; history.md preserved per agent."
+    }
+  }
+}

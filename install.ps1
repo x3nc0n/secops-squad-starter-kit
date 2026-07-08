@@ -255,6 +255,18 @@ function Install-SecOpsSquad {
     Copy-Item -Path $TempDir -Destination $InstallDir -Recurse -Force
     Remove-Item -Path (Join-Path $InstallDir ".git") -Recurse -Force
 
+    Write-Host "Resetting squad cast for fresh consumer install..." -ForegroundColor Cyan
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    & node (Join-Path $InstallDir "scripts\reset-squad.js") $InstallDir
+    $resetExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevEAP
+    if ($resetExit -ne 0) {
+        Write-Host "Squad reset failed. Aborting." -ForegroundColor Red
+        Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+
     # Initialize a fresh git repo
     Push-Location $InstallDir
     & git init --quiet
