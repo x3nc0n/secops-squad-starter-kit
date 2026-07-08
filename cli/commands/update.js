@@ -54,13 +54,21 @@ function matchesGlob(filePath, pattern) {
 /**
  * Classify a path as 'personal' | 'framework' | 'unknown' against a manifest.
  * personal_paths is the guard and WINS: checked before framework_paths.
+ * framework_exceptions override: exact paths in this array are always 'framework'
+ * even when they match a personal_paths glob (used for fixed-identity agents).
  */
 function classifyPath(filePath, manifest) {
+  const normalized = filePath.replace(/\\/g, "/");
   for (const pattern of manifest.personal_paths) {
-    if (matchesGlob(filePath, pattern)) return "personal";
+    if (matchesGlob(normalized, pattern)) {
+      // framework_exceptions override: exact-path entries (no globs) beat personal glob match
+      const exceptions = (manifest.framework_exceptions || []).map((p) => p.replace(/\\/g, "/"));
+      if (exceptions.includes(normalized)) return "framework";
+      return "personal";
+    }
   }
   for (const pattern of manifest.framework_paths) {
-    if (matchesGlob(filePath, pattern)) return "framework";
+    if (matchesGlob(normalized, pattern)) return "framework";
   }
   return "unknown";
 }

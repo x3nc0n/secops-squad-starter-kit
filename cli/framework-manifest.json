@@ -1,7 +1,7 @@
 {
   "$schema": "https://github.com/x3nc0n/secops-squad-starter-kit/cli/framework-manifest.schema",
   "version": "1.0.0",
-  "updated": "2026-07-08T18:56:00Z",
+  "updated": "2026-07-08T14:48:24-05:00",
 
   "framework_paths": [
     "cli/**",
@@ -71,6 +71,11 @@
     "secops-squad.config.json"
   ],
 
+  "framework_exceptions": [
+    ".squad/agents/scribe/charter.md",
+    ".squad/agents/ralph/charter.md"
+  ],
+
   "notes": {
     "precedence": "If a path matches both framework_paths and personal_paths, personal_paths WINS. The personal list is a guard — update.js must check personal_paths FIRST and skip any file that matches, even if framework_paths would otherwise select it.",
 
@@ -90,6 +95,8 @@
 
     "update_algorithm": "update.js must: (1) Fetch starter-kit/main. (2) Enumerate all files at starter-kit/main using 'git ls-tree -r --name-only starter-kit/main'. (3) For each upstream file, check if it matches framework_paths (glob match). (4) If it matches, check personal_paths — if personal match, SKIP. (5) Otherwise: 'git checkout starter-kit/main -- <path>'. (6) For deletion: compute framework files present locally but absent upstream; for each, confirm it is NOT a personal_paths match, then delete. (7) Run 'npm install' to sync package-lock.json after package.json update. Glob matching should use the 'minimatch' package (already available via npm ecosystem) or a simple manual implementation using Node built-ins.",
 
-    "glob_matching_note": "The glob patterns in this manifest use standard minimatch/micromatch syntax. update.js may use the 'minimatch' package (add as dep if not present) or implement simple prefix/suffix matching for the common cases. The personal_paths check is the critical guard; when in doubt, err on the side of treating a file as personal."
+    "glob_matching_note": "The glob patterns in this manifest use standard minimatch/micromatch syntax. update.js may use the 'minimatch' package (add as dep if not present) or implement simple prefix/suffix matching for the common cases. The personal_paths check is the critical guard; when in doubt, err on the side of treating a file as personal.",
+
+    "framework_exceptions_note": "Paths in framework_exceptions are ALWAYS treated as framework-owned, even if they match a personal_paths glob. Used for fixed-identity agents (Scribe, Ralph) whose protocol charters are defined and maintained by the framework. classifyPath must check this array AFTER a personal_paths match and return 'framework' if the exact normalized path is present. Entries are exact paths (no globs); normalize backslashes to forward slashes before comparison."
   }
 }

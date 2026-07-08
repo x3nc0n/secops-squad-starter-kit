@@ -162,6 +162,9 @@ main() {
   echo ""
   echo -e "${DIM}That's it! The agent will help you connect GitHub CLI"
   echo -e "and Azure when you need them.${RESET}"
+  echo -e "${CYAN}  First run tip:${RESET}"
+  echo -e "  ${DIM}Your first 'copilot --agent secops-squad' session will cast your AI team.${RESET}"
+  echo -e "  ${DIM}The Squad Coordinator will propose a team roster -- confirm to proceed.${RESET}"
   echo ""
 }
 

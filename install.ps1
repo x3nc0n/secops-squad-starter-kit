@@ -307,6 +307,9 @@ function Install-SecOpsSquad {
     Write-Host ""
     Write-Host "Note: Other open terminals may need to be restarted" -ForegroundColor DarkGray
     Write-Host "for the PATH change to take effect." -ForegroundColor DarkGray
+    Write-Host "  First run tip:" -ForegroundColor Cyan
+    Write-Host "  Your first 'copilot --agent secops-squad' session will cast your AI team." -ForegroundColor DarkGray
+    Write-Host "  The Squad Coordinator will propose a team roster -- just confirm to proceed." -ForegroundColor DarkGray
     Write-Host ""
 }
 

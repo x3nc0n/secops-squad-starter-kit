@@ -6,13 +6,12 @@ How to decide who handles what.
 
 | Work Type | Route To | Examples |
 |-----------|----------|----------|
-| KQL queries, hunting rules, detection logic | Freamon | Write KQL analytics rules, optimize queries, cross-workspace queries, ADX integration |
-| Microsoft Security products, Sentinel, Defender, threat patterns | Kima | Sentinel analytics rules, Defender configurations, MITRE ATT&CK mapping, incident response workflows |
-| Logic Apps, playbooks, automation, SOAR | Herc | Logic Apps playbooks, Azure Functions automation, webhook integrations, automated triage |
-| Templates, install scripts, CLI, framework | Sydnor | Template engines, build system, CI/CD, developer tooling, package management |
-| Testing, validation, quality | Carver | KQL query testing, template validation, edge case discovery, test harnesses |
-| Architecture, scope, priorities, code review | McNulty | Architecture decisions, PR review, issue triage, scope management, design reviews |
-| Environment context, .secops/ framework | All agents (self-serve) | Agents read .secops/ directly; no routing needed. See .copilot/skills/secops-environment-context.md |
+| {domain 1} | {Name} | {example tasks} |
+| {domain 2} | {Name} | {example tasks} |
+| {domain 3} | {Name} | {example tasks} |
+| Code review | {Name} | Review PRs, check quality, suggest improvements |
+| Testing | {Name} | Write tests, find edge cases, verify fixes |
+| Scope & priorities | {Name} | What to build next, trade-offs, decisions |
 | Session logging | Scribe | Automatic — never needs routing |
 
 ## Issue Routing
