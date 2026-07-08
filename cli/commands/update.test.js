@@ -166,9 +166,29 @@ describe('classifyPath — personal_paths WINS over framework_paths', () => {
   it('.copilot/skills/some-skill.md → framework', () =>
     assert.equal(classifyPath('.copilot/skills/some-skill.md', MANIFEST), 'framework'));
 
-  // Unknown
   it('some/random/file.xyz → unknown', () =>
     assert.equal(classifyPath('some/random/file.xyz', MANIFEST), 'unknown'));
+
+  // ── framework_exceptions — fixed-identity agents override personal glob ──
+  it('.squad/agents/scribe/charter.md → framework (framework_exception overrides personal glob)', () =>
+    assert.equal(classifyPath('.squad/agents/scribe/charter.md', MANIFEST), 'framework'));
+
+  it('.squad/agents/ralph/charter.md → framework (framework_exception overrides personal glob)', () =>
+    assert.equal(classifyPath('.squad/agents/ralph/charter.md', MANIFEST), 'framework'));
+
+  it('.squad/agents/carver/charter.md → personal (no framework_exception)', () =>
+    assert.equal(classifyPath('.squad/agents/carver/charter.md', MANIFEST), 'personal'));
+
+  it('.squad/team.md → personal', () =>
+    assert.equal(classifyPath('.squad/team.md', MANIFEST), 'personal'));
+
+  it('.squad/routing.md → personal', () =>
+    assert.equal(classifyPath('.squad/routing.md', MANIFEST), 'personal'));
+
+  it('manifest without framework_exceptions key + scribe charter → personal (graceful backward-compat)', () => {
+    const { framework_exceptions: _dropped, ...manifestWithoutExceptions } = MANIFEST;
+    assert.equal(classifyPath('.squad/agents/scribe/charter.md', manifestWithoutExceptions), 'personal');
+  });
 });
 
 describe('isFramework — convenience wrapper', () => {
@@ -302,6 +322,39 @@ describe('planUpdate', () => {
       assert.equal(r.skippedPersonal.length, 0);
     });
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3b. planUpdate — framework_exceptions
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('planUpdate — framework_exceptions', () => {
+  const UPSTREAM_EXCEPTIONS = [
+    '.squad/agents/scribe/charter.md',   // framework_exception → toSync
+    '.squad/agents/ralph/charter.md',    // framework_exception → toSync
+    '.squad/agents/kima/charter.md',     // personal (no exception) → skippedPersonal
+  ];
+
+  let result;
+  before(() => { result = planUpdate(UPSTREAM_EXCEPTIONS, [], MANIFEST); });
+
+  it('scribe charter → toSync (exception overrides personal glob)', () =>
+    assert.ok(result.toSync.includes('.squad/agents/scribe/charter.md')));
+
+  it('ralph charter → toSync (exception overrides personal glob)', () =>
+    assert.ok(result.toSync.includes('.squad/agents/ralph/charter.md')));
+
+  it('kima charter → skippedPersonal (personal glob, no exception)', () =>
+    assert.ok(result.skippedPersonal.includes('.squad/agents/kima/charter.md')));
+
+  it('kima charter NOT in toSync', () =>
+    assert.ok(!result.toSync.includes('.squad/agents/kima/charter.md')));
+
+  it('scribe charter NOT in skippedPersonal', () =>
+    assert.ok(!result.skippedPersonal.includes('.squad/agents/scribe/charter.md')));
+
+  it('ralph charter NOT in skippedPersonal', () =>
+    assert.ok(!result.skippedPersonal.includes('.squad/agents/ralph/charter.md')));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
