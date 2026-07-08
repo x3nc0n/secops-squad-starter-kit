@@ -6,6 +6,14 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+📌 **Okta → Entra Migration Architecture** (2026-07-08T12:14:47-05:00)
+- **Phase model:** Five phases (Discover → Map → Pilot/Coexistence → Cutover → Decommission) with entry/exit criteria and rollback per phase. Only Decommission has an irreversibility window post-org-deletion.
+- **Coexistence source-of-truth:** Always one-way sync (Okta → Entra). No dual-write. Source-of-truth transfers per-object-class as migration completes. Federation default: Okta-as-IdP into Entra during pilot, flip after >50% apps migrated.
+- **Tooling boundary (official MCP vs lib/okta vs Graph):** Official Okta MCP server = admin/write on Okta side (interactive CRUD, destructive ops with elicitation). `lib/okta` = migration read/extract (bulk export, mapping, reconciliation, state tracking, dry-run). Graph = all Entra writes. Zero overlap. `lib/okta` has no write capability on Okta; official MCP is stateless.
+- **Read-first/dry-run gating:** All state-changing ops follow dry-run → human review → explicit execute → state update → audit. Default is `--dry-run`; `--execute` must be explicitly passed. Even headless CI requires pipeline approval gates for destructive ops.
+- **Open-questions punch-list:** 10 decisions for x3nc0n covering tenant topology, Entra write tooling, B2B handling, MCP deployment model (interactive vs headless), PKJWT key management, MFA re-enrollment strategy, Okta Workflows scope, migration state storage, and cutover scheduling.
+- **Recommended cutover default:** Phased by Application — bounded blast radius, per-app rollback, independent app-owner readiness.
+
 📌 **Foundry Integration Critical Assessment** (2026-06-25T19:31:35-05:00)
 - **External tools hallucinate runtime state from docs:** The external evaluator confused documentation prose (model names, quota status) with live config state. Always validate branch name, commit count, and file existence directly — never trust an external tool's "config analysis" without checking `git log` and `ls`.
 - **Schema conflicts compound silently in scaffolding branches:** Three incompatible schemas (JSON camelCase, YAML snake_case, skill pseudo-code reading nonexistent fields) went unnoticed because there was no executable code to fail. Lesson: schema alignment tests should be written BEFORE implementation, not after.

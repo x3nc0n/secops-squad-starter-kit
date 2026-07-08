@@ -1,0 +1,299 @@
+# =============================================================================
+# .secops/identity/okta.yaml — Okta Org Topology
+# =============================================================================
+# Describes the Okta organization(s) in scope for this SecOps environment.
+# Agents read this file to understand:
+#   - Okta org URLs and authentication model
+#   - Whether Okta is the primary IdP or is being migrated to Entra ID
+#   - Federation relationships between Okta and Microsoft Entra ID
+#   - Key application integrations managed through Okta
+#   - Migration phase and cutover status (if applicable)
+#
+# This file is the Okta-specific analog to .secops/identity/tenants.yaml.
+# Populate it before running any Okta-aware agent task. If both files exist,
+# agents should read both to understand the full identity landscape.
+#
+# Schema Version: 1.0
+# Template: Replace REPLACE_ME placeholders with actual values.
+# =============================================================================
+
+schema_version: "1.0"
+
+# =============================================================================
+# OPERATOR CUSTOMIZATION — Migration Profile
+# =============================================================================
+# This block captures every operator-declared migration decision. It is the
+# machine-readable record of your choices — tooling reads it and behaves
+# accordingly. Fill it in by walking through the decision guides in:
+#   skills/okta/decisions/
+#
+# The guides walk you through each decision, explain the trade-offs, and name
+# the exact field below. Do NOT invent answers — every value here must be a
+# deliberate operator choice.
+#
+# Sydnor's lib/okta/config.js validates this block at startup.
+# Sydnor's lib/okta/gate.js reads dry_run and per_class_ownership before
+# every operation. Unknown enum values will cause validation to fail.
+# =============================================================================
+migration_profile:
+
+  # ---------------------------------------------------------------------------
+  # Source of Truth
+  # Decision guides: skills/okta/decisions/01-source-of-truth.md
+  #                  skills/okta/decisions/02-object-ownership.md
+  # ---------------------------------------------------------------------------
+  source_of_truth:
+
+    # Who is the authoritative identity record?
+    # okta  — Okta is the master record; pipeline runs Okta → Entra
+    # hris  — An upstream HR system is authoritative; Okta is a downstream consumer
+    # mixed — Authority is split; declare per_attribute_authority below
+    identity_authority: okta        # REPLACE_ME: okta | hris | mixed
+
+    # Required when identity_authority is hris or mixed.
+    # Set to the name of the HRIS system (e.g., "Workday", "SAP SuccessFactors", "ADP").
+    hris_system: null               # e.g. "Workday"
+
+    # ---------------------------------------------------------------------------
+    # Per-Class Ownership — single authoritative WRITER per object class
+    # This matrix declares which system owns writes for each class right now
+    # (current migration phase). Update when a class formally transfers to Entra.
+    # DO NOT declare entra ownership until Entra objects are validated and
+    # Okta writes have been deprovisioned for that class.
+    # ---------------------------------------------------------------------------
+    per_class_ownership:
+      users: okta             # REPLACE_ME: okta | entra
+      credentials_mfa: okta   # REPLACE_ME: okta | entra  (always okta until final cutover)
+      groups: okta             # REPLACE_ME: okta | entra
+      app_assignments: okta   # REPLACE_ME: okta | entra
+      policies: okta           # REPLACE_ME: okta | entra  (typically transfers last)
+
+    # Optional: per-attribute authority splits (common with hris or mixed)
+    # Format: list of {attribute, authority, notes?}
+    # Leave as [] if identity_authority is okta and no attributes split.
+    # Examples:
+    #   - attribute: manager
+    #     authority: hris
+    #     notes: "Manager chain is always pulled from Workday — Okta lags by 24h"
+    #   - attribute: department
+    #     authority: hris
+    #   - attribute: costCenter
+    #     authority: hris
+    per_attribute_authority: []
+
+  # ---------------------------------------------------------------------------
+  # Strategy — the four major migration strategy decisions
+  # Decision guides: skills/okta/decisions/03-cutover-shape.md
+  #                  skills/okta/decisions/04-group-strategy.md
+  #                  skills/okta/decisions/05-federation-direction.md
+  #                  skills/okta/decisions/06-mfa-strategy.md
+  # ---------------------------------------------------------------------------
+  strategy:
+
+    # How is the migration cutover structured?
+    # big_bang             — All users/apps switch in a single maintenance window
+    # phased_by_app        — Applications migrate one at a time (or by risk-tier batch)
+    # phased_by_population — User cohorts migrate progressively (pilot → dept → all)
+    cutover_shape: phased_by_population   # REPLACE_ME: big_bang | phased_by_app | phased_by_population
+
+    # How are Okta groups recreated in Entra?
+    # lift_and_shift — Replicate Okta groups as Entra security groups (same names/membership)
+    # rationalize    — Rebuild using Entra-native constructs (dynamic groups, access packages, PIM)
+    # NOTE: Okta group rules using regex (=~) have no direct Entra equivalent.
+    # Run lib/okta group rules export and audit before finalizing this choice.
+    group_strategy: lift_and_shift        # REPLACE_ME: lift_and_shift | rationalize
+
+    # Which system is the authenticating IdP during the coexistence window?
+    # okta_idp_into_entra — Okta remains IdP; Entra trusts Okta SAML/OIDC tokens (default)
+    # entra_idp           — Entra is IdP from coexistence start; MFA re-enrollment required immediately
+    # per_app             — Routing decided per application; requires per-app IdP metadata management
+    federation_direction: okta_idp_into_entra  # REPLACE_ME: okta_idp_into_entra | entra_idp | per_app
+
+    # How do you manage MFA re-enrollment? (Okta factors are NEVER portable to Entra.)
+    # reenroll_campaign   — Time-boxed campaign: notify users, track registration %, block non-enrolled at cutover
+    # passkey_bootstrap   — Use migration to drive passkey/phishing-resistant method adoption first
+    # per_population      — Different approach per user segment (e.g., passkey for privileged, campaign for general)
+    mfa_strategy: reenroll_campaign       # REPLACE_ME: reenroll_campaign | passkey_bootstrap | per_population
+
+  # ---------------------------------------------------------------------------
+  # Execution Gates — dry-run mode and write tooling selection
+  # Decision guide: skills/okta/decisions/07-execution-gates.md
+  # ---------------------------------------------------------------------------
+  execution:
+
+    # true  — Tooling runs in simulation mode. No live API writes. Output is a diff/plan.
+    # false — Tooling executes live state changes. Requires explicit operator confirmation.
+    # DEFAULT IS true — ALWAYS start dry. Change to false only for an intentional execute run,
+    # then reset to true afterward. lib/okta/gate.js enforces this gate.
+    dry_run: true                   # REPLACE_ME (keep true until you are ready to execute)
+
+    # Which tooling handles Entra-side writes?
+    # microsoft_graph — Microsoft Graph REST API via lib/graph-security (recommended; idempotent; bulk-capable)
+    # entra_native    — Entra admin portal, PowerShell Microsoft.Graph module, or Entra Governance tools
+    # none            — No Entra write tooling configured (valid for discovery/analysis phase only)
+    entra_write_tooling: microsoft_graph  # REPLACE_ME: microsoft_graph | entra_native | none
+
+# -----------------------------------------------------------------------------
+# Okta Orgs — All Okta organizations in scope
+# -----------------------------------------------------------------------------
+orgs:
+
+  - id: "REPLACE_ME"
+    # Human-readable name for this org
+    name: "REPLACE_ME (e.g., Acme Production)"
+
+    # Okta org base URL — used as the API base URL
+    # For Okta-hosted domains: https://acme.okta.com
+    # For custom domains: https://sso.acme.com
+    org_url: "https://REPLACE_ME.okta.com"
+
+    # Preview (sandbox) org URL — if used for testing
+    # preview_url: "https://REPLACE_ME.oktapreview.com"
+
+    # Okta engine version
+    # classic  — Okta Classic Engine (legacy policy model)
+    # oie      — Okta Identity Engine (modern policy model, authenticator-based)
+    engine: "oie"  # oie | classic
+
+    # Authentication model in use for API access
+    # ssws   — Static API token (legacy; not recommended for new integrations)
+    # oauth  — OAuth 2.0 for Okta (recommended; scoped, short-lived tokens)
+    auth_model: "oauth"  # oauth | ssws
+
+    # Operating mode — drives agent behavior
+    # primary_idp   — Okta is the authoritative IdP; no migration planned
+    # migrating     — Okta is being replaced by Entra ID; migration in progress
+    # coexistence   — Okta and Entra both active; phased cutover ongoing
+    # federated     — Okta federates into Entra (Okta = IdP, Entra trusts Okta tokens)
+    operating_mode: "migrating"  # primary_idp | migrating | coexistence | federated
+
+    notes: "REPLACE_ME — e.g., Production Okta org; migration to Entra ID in progress"
+
+  # --- Additional org example (e.g., dev/sandbox) ---
+  # - id: "REPLACE_ME_DEV"
+  #   name: "Acme Dev/Test Okta"
+  #   org_url: "https://acme-dev.okta.com"
+  #   engine: "oie"
+  #   auth_model: "oauth"
+  #   operating_mode: "primary_idp"
+  #   notes: "Dev/test org for policy and integration testing"
+
+# -----------------------------------------------------------------------------
+# Federation Relationships — How Okta and Entra ID interconnect
+# -----------------------------------------------------------------------------
+# Documents the trust relationships between Okta and Microsoft Entra ID.
+# Agents need this to understand token trust flows, coexistence behavior,
+# and which identity system is authoritative for which user population.
+federation:
+
+  # Okta as IdP federating INTO Entra ID
+  # (Okta issues SAML/OIDC assertions; Entra trusts them)
+  okta_as_idp_to_entra:
+    enabled: false
+    # If enabled, describe the federation configuration:
+    # - type: saml | oidc
+    # - target_tenant_id: Entra tenant that trusts Okta
+    # - protocol: SAML 2.0 or OIDC
+    # - status: active | being_removed (during migration, remove this trust)
+    # example:
+    # - type: "saml"
+    #   target_tenant_id: "REPLACE_ME"
+    #   target_tenant_name: "Acme Production Entra"
+    #   protocol: "SAML 2.0"
+    #   status: "being_removed"
+    #   notes: "Okta SAML trust in Entra being removed post-migration cutover"
+
+  # Entra ID as IdP federating INTO Okta
+  # (Entra issues tokens; Okta trusts them for inbound users)
+  entra_as_idp_to_okta:
+    enabled: false
+    # example:
+    # - type: "oidc"
+    #   source_tenant_id: "REPLACE_ME"
+    #   source_tenant_name: "Acme Production Entra"
+    #   notes: "Entra federated into Okta for external partner users"
+
+  # Okta provisioning into Entra ID (SCIM / Okta Microsoft Azure AD integration)
+  # Used during coexistence to sync Okta users/groups into Entra
+  okta_provisioning_to_entra:
+    enabled: false
+    # - target_tenant_id: "REPLACE_ME"
+    # - sync_users: true
+    # - sync_groups: true
+    # - sync_direction: "okta_to_entra"
+    # - notes: "Enabled during migration coexistence phase; disable post-cutover"
+
+# -----------------------------------------------------------------------------
+# Key Application Integrations — High-value apps managed through Okta
+# -----------------------------------------------------------------------------
+# Lists apps that warrant specific attention during migration or federated-ops
+# work. Focus on high-impact apps (workforce productivity, security tools,
+# regulated access) rather than trying to list everything.
+key_applications:
+  # - label: "REPLACE_ME (e.g., Salesforce Production)"
+  #   app_id: "REPLACE_ME_OKTA_APP_ID"
+  #   sign_on_mode: "SAML_2_0"  # SAML_2_0 | OPENID_CONNECT | AUTO_LOGIN | BOOKMARK
+  #   migration_status: "pending"  # pending | in_progress | completed | blocked
+  #   notes: "REPLACE_ME — e.g., NameID must match Salesforce Federation ID exactly"
+
+  # - label: "Microsoft 365"
+  #   app_id: "REPLACE_ME_OKTA_APP_ID"
+  #   sign_on_mode: "SAML_2_0"
+  #   migration_status: "completed"
+  #   notes: "M365 already directly federated with Entra; Okta app disabled"
+
+  # - label: "ServiceNow"
+  #   app_id: "REPLACE_ME"
+  #   sign_on_mode: "SAML_2_0"
+  #   migration_status: "pending"
+  #   notes: "Custom attribute statements used; claims mapping must be validated"
+
+  # - label: "Internal HR Portal (SWA)"
+  #   app_id: "REPLACE_ME"
+  #   sign_on_mode: "AUTO_LOGIN"
+  #   migration_status: "blocked"
+  #   notes: "SWA app — no SAML/OIDC support; will remain in Okta post-migration"
+
+# -----------------------------------------------------------------------------
+# Migration Status — Tracks the overall Okta → Entra migration
+# -----------------------------------------------------------------------------
+# Only relevant when operating_mode is "migrating" or "coexistence".
+# Skip or comment out if Okta remains the permanent IdP.
+migration_status:
+
+  # Current phase of the migration
+  # discovery    — inventorying Okta objects; no changes made yet
+  # prep         — creating Entra objects (groups, extension schemas, app registrations)
+  # coexistence  — Okta and Entra both active; apps being migrated one by one
+  # cutover      — final cutover; Okta being decommissioned
+  # completed    — Okta decommissioned; Entra is sole IdP
+  phase: "discovery"  # discovery | prep | coexistence | cutover | completed
+
+  # Target cutover date (ISO 8601)
+  # cutover_target: "REPLACE_ME (e.g., 2026-10-01)"
+
+  # Migration tracking notes
+  notes: "REPLACE_ME — e.g., Phase 1: user inventory completed. Phase 2: group recreation in progress."
+
+  # Apps NOT being migrated (staying in Okta or being retired separately)
+  # apps_excluded_from_migration:
+  #   - label: "Legacy SWA App"
+  #     reason: "No SAML/OIDC support; vendor contract ends 2027-Q1"
+
+# -----------------------------------------------------------------------------
+# Security Notes — Okta-specific operational security context
+# -----------------------------------------------------------------------------
+security:
+
+  # Whether Okta MFA is enforced for admin console access
+  admin_mfa_enforced: true  # true | false | REPLACE_ME
+
+  # Whether Okta ThreatInsight (risk-based blocking) is enabled
+  threat_insight_enabled: true  # true | false | REPLACE_ME
+
+  # Whether Okta's System Log is forwarded to Sentinel
+  system_log_to_sentinel: false  # true | false | REPLACE_ME
+  # If true, note the connector/data source name:
+  # sentinel_table: "OktaSSO_CL"  # or "Okta_CL" depending on connector version
+
+  notes: "REPLACE_ME — e.g., SSWS token rotation last performed 2026-01-15; schedule next rotation"

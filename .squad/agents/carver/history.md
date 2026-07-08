@@ -131,3 +131,20 @@ Inbox merged into decisions.md. Orchestration logs in .squad/orchestration-log/.
   - `normalizeOrgUrl` uses `/\/$/.` (strips ONE slash); `https://…///` → `https://…//` (not clean)
   - `normalizeOrgUrl` does not add `https://` when scheme is absent — silent runtime failure
 - Gaps flagged in `carver-okta-review.md`: GAP-1 (https:// normalization missing), GAP-2 (no write ops — READ-FIRST design, needs coordinator sign-off)
+
+---
+
+## 2026-07-08T12:25:37-05:00 — Okta Config/Gate Harness — Full Coverage Written
+
+📌 **GAP-1 Re-verified FIXED** (2026-07-08)
+- Sydnor's utils.js now uses `/\/+$/` (all slashes) and `https://` prefix guard
+- Both previously-failing normalizeOrgUrl tests now PASS; neither assertion was weakened
+- Full suite: 626/626 pass (was 505 before this session); 0 fail
+
+📌 **Config/Gate Test Suite Written** (2026-07-08)
+- Created `lib/okta/config.test.js` — 57 tests across 5 describe blocks (all pass)
+- Created `lib/okta/gate.test.js` — 64 tests across 7 describe blocks (all pass)
+- config.test.js covers: real okta.yaml → {ok:true}, per_attribute_authority:[] valid, all 8 enum fields individually rejected (name+value+options in error), all 3 required sections (missing → named error), multi-error accumulation, never throws
+- gate.test.js covers: assertEntraOwned all 5 classes × 2 states (10 combinations), isDryRun with string/number truthy-falsy traps (only boolean true), dryRunGuard with throw-fetch proof of no fetch call, composability pattern (short-circuit + live-proceed), cutoverWorkflow all 3 shapes + workflow-switch pattern, integration chain (loadMigrationProfile → gate), non-throwing on 11 malformed input types
+- Key design principle validated: tooling honors operator's declared choices — no hardcoded behavior; every gate outcome is driven by migration_profile values
+- Verdict written to `.squad/decisions/inbox/carver-okta-harness-review.md`: **PASS**
