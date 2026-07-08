@@ -1,0 +1,18 @@
+migration_profile:
+  source_of_truth:
+    identity_authority: okta
+    hris_system: null
+    per_class_ownership:
+      users: entra
+      credentials_mfa: okta
+      groups: entra
+      app_assignments: entra
+      policies: okta
+  strategy:
+    cutover_shape: big_bang
+    group_strategy: rationalize
+    federation_direction: entra_idp
+    mfa_strategy: passkey_bootstrap
+  execution:
+    dry_run: false
+    entra_write_tooling: microsoft_graph

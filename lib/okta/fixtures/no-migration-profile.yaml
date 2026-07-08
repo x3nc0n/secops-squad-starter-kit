@@ -1,0 +1,6 @@
+schema_version: "1.0"
+orgs:
+  - id: "acme"
+    name: "Acme Production"
+    org_url: "https://acme.okta.com"
+# no migration_profile block — simulates a file that hasn't been updated yet

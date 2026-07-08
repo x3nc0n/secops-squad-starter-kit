@@ -4,6 +4,68 @@
 
 ## Learnings
 
+📌 **Okta Config/Gate Layer + GAP-1 Fix — 2026-07-08**
+
+**Files Created/Modified:**
+- `lib/okta/utils.js` — fixed `normalizeOrgUrl()`: `/\/+$/` strips ALL trailing slashes; `if (!url.match(/^https?:\/\//)) url = 'https://' + url` adds scheme. Carver's 2 GAP-1 tests now pass (164/164 total).
+- `lib/okta/config.js` — `loadMigrationProfile(filePath?)` reads `migration_profile` block from `.secops/identity/okta.yaml` via js-yaml, validates against canonical schema, returns `{ok,data?,error?}`. `validateProfile(profile)` exported for testing. Mirrors `lib/foundry/config.js` pattern (readYaml → parse → validate → return). Never throws.
+- `lib/okta/schema/migration-profile.schema.json` — JSON Schema (draft-07) for the canonical `migration_profile` block. Documents enum values, required fields, optional `per_attribute_authority` array, additionalProperties:false for operator tooling.
+- `lib/okta/gate.js` — `assertEntraOwned(profile, objectClass)` blocks writes to Okta-owned classes (single-writer-per-class rule); `isDryRun(profile)` and `dryRunGuard(profile, opDescription)` short-circuit live calls; `cutoverWorkflow(profile)` returns declared shape for workflow selection. All synchronous, all return `{ok,...}`, never throw.
+- `lib/okta/fixtures/` — valid-profile.yaml, entra-owned-profile.yaml, invalid-profile.yaml, no-migration-profile.yaml (smoke test fixtures)
+- `lib/okta/config.gate.test.js` — 19 smoke tests across config + gate modules (6 suites, 19/19 pass)
+- `lib/okta/index.js` — wired `loadMigrationProfile` and `gate` into public exports
+
+**Config/gate design decisions:**
+
+*Schema approach:* Inline enum validation via `Set` (no JSON Schema library dep) mirrors `lib/foundry/config.js`. The `migration-profile.schema.json` file is for operator tooling/documentation; runtime validation uses the Set-based `validateProfile()`.
+
+*Error messages:* Every validation error names the failing field path + the invalid value + the valid options — operators get actionable output, not just "invalid config".
+
+*Absent file / absent block:* Returns `{ok:false}` with a message telling the operator to run the decision guide. Does NOT silently return a default profile — the gate must be explicit.
+
+*`dryRunGuard` pattern:* Returns `null` (proceed live) or a result object (short-circuit). Callers use `if (guard) return guard;` — clear, zero-ambiguity idiom matching the `{ok,...}` contract.
+
+*Gate reusability:* `gate.js` has no imports from the Okta API modules — it's pure profile logic, so the Graph write-side can `require('./lib/okta/gate')` and call the same gates without pulling in the Okta HTTP client.
+
+*`assertEntraOwned` directionality:* Guards Entra-side writes (lib/okta is READ-first; writes route to official MCP). The gate enforces the operator's declared ownership so neither system writes to a class the other owns.
+
+📌 **Okta Platform Layer — 2026-07-08**
+
+
+**Files Created:**
+- `lib/okta/utils.js` — `normalizeOrgUrl()`, `oktaGet/Post/Put()`, `paginatedGet()` (Link-header cursor), `extractNextLink()`, `shapeError()`, rate-limit back-off using `X-Rate-Limit-Reset` + exponential jitter
+- `lib/okta/auth.js` — SSWS (`getSswsAuthHeader()`), OAuth2 `client_credentials` (`getTokenClientCredentials()`), OAuth2 `private_key_jwt` (`getTokenPrivateKeyJwt()` + `buildPrivateKeyJwt()`), in-memory token cache with 5-min early-refresh buffer (mirrors graph-security/auth.js)
+- `lib/okta/index.js` — `createClient(config)` factory supporting `ssws`/`clientCredentials`/`privateKeyJwt` auth methods; constants `GROUP_TYPE`, `USER_STATUS`, `SIGN_ON_MODE`, `POLICY_TYPE`, `FACTOR_TYPE`
+- `lib/okta/users.js` — `listUsers()`, `getUser()`, `searchUsers()`, `listUserGroups()`, `listUserFactors()`, `getUserLifecycle()`
+- `lib/okta/groups.js` — `listGroups()`, `getGroup()`, `listGroupMembers()`, `listGroupRules()`, `getGroupRule()`, `listGroupApps()`
+- `lib/okta/apps.js` — `listApps()`, `getApp()`, `getAppSamlSettings()`, `getAppOidcSettings()`, `listAppUsers()`, `listAppGroups()`, `listAppKeys()`
+- `lib/okta/policies.js` — `listPolicies()`, `getPolicy()`, `getPolicyRules()`, `getPolicyRule()`, `listAuthenticators()`, `getAuthenticator()`, `listAllMigrationPolicies()`
+- `lib/okta/README.md` — auth setup, {ok} contract, pagination, rate-limit guidance, env vars
+- `skills/okta/okta-mcp-server.md` — MCP server tool contract, tool schemas, migration workflow phases
+
+**Auth model decisions:**
+- Three auth methods: `ssws` (SSWS header, no network), `clientCredentials` (Basic auth → token), `privateKeyJwt` (RS256 JWT assertion → token)
+- `privateKeyJwt` implemented natively using Node.js `crypto.createSign('RSA-SHA256')` + `crypto.randomUUID()` — zero external deps
+- Token caching with 5-min buffer on `expiresAt` (identical pattern to `lib/foundry/auth.js` and `lib/graph-security/auth.js`)
+
+**Pagination design:**
+- Okta uses `Link: <url>; rel="next"` header (unlike OData `@nextLink`)
+- `extractNextLink()` parses the Link header with regex
+- All list functions: pass `nextLink` option for manual paging, or `fetchAll: true` for auto-collect (100-page safety cap)
+
+**Rate-limit design:**
+- On HTTP 429: read `X-Rate-Limit-Reset` (Unix epoch), compute wait = (resetEpoch - now) + random jitter ≤500ms
+- Falls back to exponential back-off using `Retry-After` header
+- Max 3 retries before returning `{ok: false}` to caller
+
+**{ok} contract reuse:**
+- Identical shape to graph-security: `{ok: true, data, nextLink?}` | `{ok: false, error, status?, errorCode?}`
+- `shapeError()` maps Okta's `errorCode`/`errorSummary`/`errorCauses` into the standard shape
+
+**Read-first posture:**
+- No write/update/delete functions exposed in any module
+- Documented explicitly in README and MCP skill doc
+
 📌 **Foundry Phase 0 Implementation — 2026-06-25**
 
 **Files Created:**

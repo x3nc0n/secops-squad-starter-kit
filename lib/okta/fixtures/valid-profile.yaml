@@ -1,0 +1,18 @@
+migration_profile:
+  source_of_truth:
+    identity_authority: okta
+    hris_system: null
+    per_class_ownership:
+      users: okta
+      credentials_mfa: okta
+      groups: okta
+      app_assignments: okta
+      policies: okta
+  strategy:
+    cutover_shape: phased_by_app
+    group_strategy: lift_and_shift
+    federation_direction: okta_idp_into_entra
+    mfa_strategy: reenroll_campaign
+  execution:
+    dry_run: true
+    entra_write_tooling: none
