@@ -1,0 +1,90 @@
+# =============================================================================
+# .secops/identity/ping.yaml — Ping Identity Topology (EXAMPLE)
+# =============================================================================
+# Copy to .secops/identity/ping.yaml. Only needed for environments with Ping.
+# See skills/ping/decisions/ for guides on filling out migration_profile.
+# Schema Version: 1.0
+# =============================================================================
+
+schema_version: "1.0"
+
+ping:
+  deployment: hybrid   # cloud | onprem | hybrid
+
+  cloud:
+    environment_id: "<PINGONE_ENV_ID>"
+    region: "com"      # com | eu | ca | asia | au
+    auth_model: "client_credentials"   # client_credentials | pkce
+    operating_mode: "migrating"        # primary_idp | migrating | coexistence | federated
+
+  aic:
+    enabled: false
+    base_url: "https://<tenant>.forgeblocks.com/am"
+    environment_id: "<AIC_ENV_ID>"
+    operating_mode: "coexistence"
+
+  onprem:
+    pingfederate:
+      enabled: true
+      admin_url: "https://<pf-host>:9999"
+      version: "11.x"              # document the instance version — affects API surface
+      operating_mode: "migrating"  # primary_idp | migrating | coexistence
+      saml_sp_count: 0             # operator fills after discovery
+      oauth_clients_count: 0
+
+    pingdirectory:
+      enabled: true
+      scim_url: "https://<pd-host>/scim/v2"
+      ldap_host: "<pd-host>"
+      ldap_port: 636
+      use_ssl: true
+      operating_mode: "primary_store"
+
+    pingaccess:
+      enabled: false
+      admin_url: "https://<pa-host>:9000"
+      version: "7.x"
+      operating_mode: "coexistence"
+
+migration_profile:
+  source_of_truth:
+    identity_authority: pingfederate   # pingfederate | pingone | aic | hris | mixed
+    hris_system: null
+    federation_source: pingfederate    # pingfederate | pingone | aic — who issues SAML/OIDC tokens today
+    per_class_ownership:
+      users: ping
+      credentials_mfa: ping
+      groups: ping
+      app_assignments: ping
+      policies: ping
+      saml_sp_connections: ping
+    per_attribute_authority: []
+
+  strategy:
+    cutover_shape: phased_by_app       # big_bang | phased_by_app | phased_by_population
+    group_strategy: lift_and_shift     # lift_and_shift | rationalize
+    federation_direction: ping_idp_into_entra  # ping_idp_into_entra | entra_idp | per_app
+    mfa_strategy: pingid_reenroll      # pingid_reenroll | passkey_bootstrap | per_population
+    nameid_strategy: map_to_persistent # map_to_persistent | use_email | manual_per_app
+    # nameid_strategy notes:
+    #   map_to_persistent: map PF persistent NameID attribute → Entra objectId (safest)
+    #   use_email: use UPN/email as NameID (works if PF uses email today)
+    #   manual_per_app: each SP connection gets its own mapping decision (use for complex envs)
+
+  execution:
+    dry_run: true               # KEEP true until ready to execute live changes
+    entra_write_tooling: microsoft_graph   # microsoft_graph | entra_native | none
+
+environments:
+  - id: "<ENV_ID>"
+    name: "<ORG_NAME> Production"
+    notes: "<NOTES>"
+
+migration_status:
+  phase: "discovery"   # discovery | prep | coexistence | cutover | completed
+  notes: "<MIGRATION_NOTES>"
+
+security:
+  admin_mfa_enforced: true
+  pf_admin_audit_log_to_sentinel: false
+  pingone_audit_log_to_sentinel: false

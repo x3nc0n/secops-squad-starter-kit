@@ -6,6 +6,7 @@
   "framework_paths": [
     "cli/**",
     "lib/**",
+    "mcp/**",
     "docs/**",
     "skills/**",
     "personas/**",
@@ -46,6 +47,7 @@
     ".secops/environment.yaml",
     ".secops/foundry.yaml",
     ".secops/identity/okta.yaml",
+    ".secops/identity/ping.yaml",
     ".secops/identity/rbac-conventions.yaml",
     ".secops/identity/tenants.yaml",
     ".secops/workspaces/*.yaml",

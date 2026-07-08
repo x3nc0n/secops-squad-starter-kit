@@ -1,0 +1,20 @@
+migration_profile:
+  source_of_truth:
+    identity_authority: invalid_authority
+    federation_source: bad_source
+    per_class_ownership:
+      users: ping
+      credentials_mfa: ping
+      groups: invalid_owner
+      app_assignments: ping
+      policies: ping
+      saml_sp_connections: ping
+  strategy:
+    cutover_shape: bad_shape
+    group_strategy: lift_and_shift
+    federation_direction: ping_idp_into_entra
+    mfa_strategy: bad_mfa_strategy
+    nameid_strategy: bad_nameid
+  execution:
+    dry_run: "not-a-boolean"
+    entra_write_tooling: none

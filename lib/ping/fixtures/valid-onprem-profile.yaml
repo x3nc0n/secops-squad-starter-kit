@@ -1,0 +1,22 @@
+migration_profile:
+  source_of_truth:
+    identity_authority: pingfederate
+    federation_source: pingfederate
+    hris_system: null
+    per_class_ownership:
+      users: ping
+      credentials_mfa: ping
+      groups: ping
+      app_assignments: ping
+      policies: ping
+      saml_sp_connections: ping
+    per_attribute_authority: []
+  strategy:
+    cutover_shape: phased_by_population
+    group_strategy: rationalize
+    federation_direction: ping_idp_into_entra
+    mfa_strategy: per_population
+    nameid_strategy: manual_per_app
+  execution:
+    dry_run: true
+    entra_write_tooling: none
