@@ -1,0 +1,57 @@
+# =============================================================================
+# .secops/identity/okta.yaml — Okta Org Topology (EXAMPLE)
+# =============================================================================
+# Copy to .secops/identity/okta.yaml. Only needed for environments with Okta.
+# See skills/okta/decisions/ for guides on filling out migration_profile.
+# Schema Version: 1.0
+# =============================================================================
+
+schema_version: "1.0"
+
+migration_profile:
+  source_of_truth:
+    identity_authority: okta    # okta | hris | mixed
+    hris_system: null
+    per_class_ownership:
+      users: okta
+      credentials_mfa: okta
+      groups: okta
+      app_assignments: okta
+      policies: okta
+    per_attribute_authority: []
+  strategy:
+    cutover_shape: phased_by_population    # big_bang | phased_by_app | phased_by_population
+    group_strategy: lift_and_shift         # lift_and_shift | rationalize
+    federation_direction: okta_idp_into_entra   # okta_idp_into_entra | entra_idp | per_app
+    mfa_strategy: reenroll_campaign        # reenroll_campaign | passkey_bootstrap | per_population
+  execution:
+    dry_run: true              # KEEP true until ready to execute live changes
+    entra_write_tooling: microsoft_graph   # microsoft_graph | entra_native | none
+
+orgs:
+  - id: "<OKTA_ORG_ID>"
+    name: "<ORG_NAME> Production"
+    org_url: "https://<OKTA_DOMAIN>.okta.com"
+    engine: "oie"        # oie | classic
+    auth_model: "oauth"  # oauth | ssws
+    operating_mode: "migrating"   # primary_idp | migrating | coexistence | federated
+    notes: "<NOTES>"
+
+federation:
+  okta_as_idp_to_entra:
+    enabled: false
+  entra_as_idp_to_okta:
+    enabled: false
+  okta_provisioning_to_entra:
+    enabled: false
+
+key_applications: []
+
+migration_status:
+  phase: "discovery"   # discovery | prep | coexistence | cutover | completed
+  notes: "<MIGRATION_NOTES>"
+
+security:
+  admin_mfa_enforced: true
+  threat_insight_enabled: true
+  system_log_to_sentinel: false

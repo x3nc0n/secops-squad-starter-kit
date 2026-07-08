@@ -1,0 +1,64 @@
+# =============================================================================
+# .secops/identity/rbac-conventions.yaml — RBAC Conventions (EXAMPLE)
+# =============================================================================
+# Copy to .secops/identity/rbac-conventions.yaml.
+# Defines naming patterns and role bundles agents follow when creating RBAC.
+# Schema Version: 1.0
+# =============================================================================
+
+schema_version: "1.0"
+
+naming_patterns:
+  security_groups: "sg-{scope}-{role}-{env}"
+  role_assignable_groups: "rag-{role}-{purpose}"
+  pim_groups: "pim-{role}-{scope}"
+  app_registrations: "app-soc-{purpose}-{env}"
+
+role_templates:
+
+  soc_l1:
+    description: "Triage analysts — read access, can update incidents"
+    assignments:
+      - role: "Microsoft Sentinel Reader"
+        scope: "sentinel-workspace"
+      - role: "Microsoft Sentinel Responder"
+        scope: "sentinel-workspace"
+      - role: "Security Reader"
+        scope: "tenant"
+    group: "sg-sentinel-responder-<ENV>"
+
+  soc_l2:
+    description: "Investigation analysts — can create rules and hunting queries"
+    assignments:
+      - role: "Microsoft Sentinel Contributor"
+        scope: "sentinel-workspace"
+      - role: "Log Analytics Contributor"
+        scope: "log-analytics-workspace"
+    group: "sg-sentinel-contributor-<ENV>"
+
+  soc_l3:
+    description: "Detection engineers and SOAR developers"
+    assignments:
+      - role: "Microsoft Sentinel Contributor"
+        scope: "sentinel-workspace"
+      - role: "Logic App Contributor"
+        scope: "soar-resource-group"
+      - role: "Log Analytics Contributor"
+        scope: "log-analytics-workspace"
+    group: "sg-sentinel-engineer-<ENV>"
+
+pim:
+  enabled: true
+  eligible_roles:
+    - role: "Global Administrator"
+      max_duration_hours: 2
+      require_justification: true
+      require_approval: true
+      approvers: ["<SOC_LEAD_GROUP>"]
+    - role: "Security Admin"
+      max_duration_hours: 8
+      require_justification: true
+      require_approval: false
+  permanent_roles:
+    - role: "Security Reader"
+    - role: "Microsoft Sentinel Reader"

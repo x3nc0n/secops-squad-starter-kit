@@ -1,0 +1,38 @@
+# =============================================================================
+# .secops/environment.yaml — Primary Environment Descriptor (EXAMPLE)
+# =============================================================================
+# Copy this file to .secops/environment.yaml and fill in your values.
+# Run: secops-squad init --secops   (guided interactive setup)
+# Schema Version: 1.0
+# =============================================================================
+
+schema_version: "1.0"
+
+organization:
+  name: "<YOUR_ORG_NAME>"
+  cloud: "azure-commercial"     # azure-commercial | azure-government | azure-china | azure-stack
+  primary_region: "<AZURE_REGION>"   # e.g., eastus2
+  data_residency: "<COUNTRY_CODE>"   # e.g., us
+  org_type: "enterprise"             # enterprise | mssp
+
+tenants:
+  - id: "<YOUR_TENANT_ID>"
+    name: "<TENANT_DISPLAY_NAME>"
+    type: "primary"   # primary | secondary | managed | lighthouse-delegated | csp
+
+  # - id: "<SECONDARY_TENANT_ID>"
+  #   name: "<SECONDARY_TENANT_NAME>"
+  #   type: "secondary"
+
+subscriptions:
+  - id: "<SUBSCRIPTION_ID>"
+    name: "<SUBSCRIPTION_NAME>"
+    tenant: "<YOUR_TENANT_ID>"
+    purpose: "sentinel, soar-playbooks"
+
+default_workspace: "<WORKSPACE_YAML_STEM>"  # stem of .secops/workspaces/<stem>.yaml
+
+lighthouse:
+  delegations: []
+
+managed_customers: []

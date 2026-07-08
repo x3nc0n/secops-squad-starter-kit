@@ -9,7 +9,7 @@
   "scripts": {
     "init": "node cli/index.js init",
     "doctor": "node cli/index.js doctor",
-    "test": "node --test lib/**/*.test.js",
+    "test": "node --test \"lib/**/*.test.js\" \"cli/**/*.test.js\"",
     "lint": "eslint cli/ lib/ --ext .ts,.js",
     "validate:kql": "node cli/index.js kql validate"
   },

@@ -1,0 +1,48 @@
+# =============================================================================
+# .secops/workspaces/workspace.yaml — Workspace Configuration (EXAMPLE)
+# =============================================================================
+# Create one file per Sentinel/ADX workspace: .secops/workspaces/<name>.yaml
+# Run: secops-squad workspace connect   (auto-discovers from Azure)
+# Schema Version: 1.0
+# =============================================================================
+
+schema_version: "1.0"
+
+name: "<LOG_ANALYTICS_WORKSPACE_NAME>"
+workspace_id: "<WORKSPACE_GUID>"          # Azure Portal → workspace → Properties
+resource_group: "<RESOURCE_GROUP_NAME>"
+subscription: "<SUBSCRIPTION_ID>"
+region: "<AZURE_REGION>"                  # e.g., eastus2
+
+sentinel_enabled: true
+tier: "PerGB2018"    # PerGB2018 | CapacityReservation
+commitment_tier_gb: null
+
+retention:
+  default_days: 90
+  interactive_days: 90
+  archive_days: 730
+
+custom_tables: []
+# Example custom table:
+# - name: "NetFlowLogs_CL"
+#   tier: "Basic"     # Analytics | Basic | Auxiliary (Sentinel data lake)
+#   daily_gb: <ESTIMATED_GB>
+
+data_connectors:
+  - name: "Microsoft Defender for Endpoint"
+    status: "connected"    # connected | disconnected | degraded | pending
+    tables:
+      - "DeviceProcessEvents"
+      - "DeviceNetworkEvents"
+  - name: "Microsoft Entra ID"
+    status: "connected"
+    tables:
+      - "SigninLogs"
+      - "AuditLogs"
+
+naming_conventions:
+  analytics_rules: "{severity}-{mitre_tactic}-{description}"
+  watchlists: "wl-{purpose}-{source}"
+  workbooks: "wb-{domain}-{description}"
+  automation_rules: "ar-{action}-{trigger}"

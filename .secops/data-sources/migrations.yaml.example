@@ -1,0 +1,29 @@
+# =============================================================================
+# .secops/data-sources/migrations.yaml — Data Migration Tracking (EXAMPLE)
+# =============================================================================
+# Copy to .secops/data-sources/migrations.yaml.
+# Agents check this before assuming a table's location is stable.
+# Schema Version: 1.0
+# =============================================================================
+
+schema_version: "1.0"
+
+migrations:
+
+  # Template entry — copy and fill in for each active migration
+  # - id: "mig-001"
+  #   status: "planned"            # planned | in-progress | completed | cancelled
+  #   description: "<DESCRIPTION>"
+  #   source:
+  #     location: "sentinel"       # sentinel | adx | external
+  #     workspace: "<SOURCE_WORKSPACE>"
+  #     table: "<SOURCE_TABLE>"
+  #   target:
+  #     location: "sentinel"
+  #     workspace: "<TARGET_WORKSPACE>"
+  #     table: "<TARGET_TABLE>"
+  #     tier: "Analytics"          # Analytics | Basic | Sentinel data lake
+  #   planned_start: "<YYYY-MM-DD>"
+  #   estimated_completion: "<YYYY-MM-DD>"
+  #   owner: "<YOUR_NAME>"
+  #   notes: "<CONTEXT_FOR_AGENTS>"

@@ -1,0 +1,78 @@
+# =============================================================================
+# .secops/alerting/escalation.yaml — Escalation Procedures (EXAMPLE)
+# =============================================================================
+# Copy to .secops/alerting/escalation.yaml and fill in your contacts.
+# Schema Version: 1.0
+# =============================================================================
+
+schema_version: "1.0"
+
+tiers:
+
+  - tier: 1
+    name: "SOC L1 — Initial Triage"
+    timeout_minutes: 15
+    contacts:
+      - type: "team"
+        name: "<SOC_L1_TEAM_NAME>"
+        channel: "teams://<CHANNEL_NAME>"
+    actions:
+      - "Acknowledge alert"
+      - "Initial triage and classification"
+
+  - tier: 2
+    name: "SOC L2 — Investigation"
+    timeout_minutes: 30
+    contacts:
+      - type: "team"
+        name: "<SOC_L2_TEAM_NAME>"
+        channel: "teams://<CHANNEL_NAME>"
+      - type: "individual"
+        name: "<SHIFT_LEAD_NAME>"
+        method: "teams"
+        handle: "@<SHIFT_LEAD_HANDLE>"
+    actions:
+      - "Deep investigation"
+      - "Containment actions if needed"
+
+  - tier: 3
+    name: "SOC Lead — Management Response"
+    timeout_minutes: 60
+    contacts:
+      - type: "individual"
+        name: "<SOC_MANAGER_NAME>"
+        method: "phone"
+        handle: "<PHONE_NUMBER>"
+    actions:
+      - "Executive notification"
+      - "Incident commander assignment"
+
+  - tier: 4
+    name: "Executive — Crisis Response"
+    timeout_minutes: 120
+    contacts:
+      - type: "individual"
+        name: "<CISO_NAME>"
+        method: "phone"
+        handle: "<PHONE_NUMBER>"
+      - type: "individual"
+        name: "<LEGAL_CONTACT_NAME>"
+        method: "email"
+        handle: "<SECURITY_LEGAL_EMAIL>"
+    actions:
+      - "Activate incident response plan"
+      - "Legal and compliance notification"
+
+severity_overrides:
+  Critical:
+    start_tier: 2
+    timeout_multiplier: 0.5
+
+after_hours:
+  timezone: "<TIMEZONE>"    # e.g., America/Chicago
+  business_hours:
+    start: "08:00"
+    end: "18:00"
+    days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+  adjustments:
+    timeout_multiplier: 1.5

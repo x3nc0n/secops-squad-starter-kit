@@ -142,6 +142,13 @@ async function main() {
     process.exit(0);
   }
 
+  // --update is an alias for the update subcommand
+  if (args.includes("--update")) {
+    const remaining = args.filter((a) => a !== "--update");
+    await handleCommand("update", remaining);
+    return;
+  }
+
   const command = args[0];
   const commandArgs = args.slice(1);
   await handleCommand(command, commandArgs);

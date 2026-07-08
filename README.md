@@ -145,9 +145,16 @@ Keep your project in sync with the latest starter-kit improvements:
 secops-squad update
 ```
 
-This command adds the starter-kit as a git remote (if not already present), fetches the latest changes, and merges them into your project using `--allow-unrelated-histories`. Your local customizations in `.secops/`, `.squad/`, and any other files you've changed are preserved — the merge only adds or updates starter-kit files.
+This command syncs only the framework files listed in [`cli/framework-manifest.json`](cli/framework-manifest.json) — skills, CLI code, docs, templates, `.copilot/skills/`, `.github/agents/`, and `*.example` schema files. It never touches your personal state:
 
-If merge conflicts arise, the command will tell you which files need attention. Resolve the conflict markers, stage the files with `git add`, and run `git commit` to finish.
+- **`.secops/**/*.yaml`** — your org's workspace IDs, tenant config, alerting rules, compliance requirements
+- **`.squad/decisions*.md`, agent `history.md`** — your team's decisions and memories
+- **`.squad/team.md`, `.squad/routing.md`, agent `charter.md`** — your squad cast
+- **`decisions.md`** (root) — your project decision log
+- **`secops-squad.config.json`** — your local persona and workspace bindings
+
+> [!NOTE]
+> `package.json` is framework-owned — `secops-squad update` will overwrite it. If you added npm dependencies directly to `package.json`, the update will emit a warning listing them so you can re-add them manually. The recommended pattern for consumer extensions is a separate plugin package, not editing root `package.json`.
 
 > [!TIP]
 > Commit your local changes before running `secops-squad update` — the command will refuse to run with uncommitted changes to keep your work safe.
@@ -277,19 +284,32 @@ SecOps Squad follows the same personal-data pattern as [Productivity Squad](http
 | File / Directory | Purpose |
 |-----------------|---------|
 | `secops-squad.config.json` | Your persona selection, workspace bindings, local preferences |
-| `.secops/discovery-log.yaml` | Agent-discovered environment facts (accumulated at runtime) |
-| `.squad/log/`, `.squad/orchestration-log/` | Session history — your conversations, agent traces |
+| `.secops/**/*.yaml` | All live YAML config — workspace IDs, tenant topology, alerting rules, compliance, identity, data sources, discovery log. Fill from the `*.yaml.example` templates. |
+| `.squad/decisions.md`, `.squad/decisions-archive.md` | Your team's merged and archived decisions |
+| `.squad/decisions/decisions.md` | Active decisions file (personal copy) |
 | `.squad/decisions/inbox/` | Pending decisions before the Scribe merges them |
+| `.squad/agents/*/history.md`, `.squad/agents/*/history-archive.md` | Each agent's accumulated project memory |
+| `.squad/casting/history.json`, `.squad/casting/registry.json`, `.squad/casting/policy.json` | Your squad's casting history and role policy |
+| `.squad/identity/now.md`, `.squad/identity/wisdom.md` | Squad identity state — current context and accumulated wisdom |
+| `decisions.md` (root) | Project-level decision log |
+| `.squad/log/`, `.squad/orchestration-log/` | Session history — your conversations, agent traces |
 | `node_modules/` | Dependencies (reinstalled from `package.json`) |
 
-### What's shared (committed)
+### What's shared (committed / synced on update)
 
-Skills, team roster, agent charters, `.secops/` schema templates, CLI code, and merged decisions. These define **how** the team works — not **where** it works or **whose** data it touches.
+| File / Directory | Purpose |
+|-----------------|---------|
+| `skills/`, `lib/`, `cli/`, `docs/` | Core framework — detection skills, CLI code, documentation |
+| `.squad/templates/` | Scaffolding templates for new charters, routing, history seeds |
+| `.squad/ceremonies.md`, `.squad/config.json`, `.squad/README.md` | Framework squad configuration |
+| `.copilot/skills/` | Process playbooks and Copilot-level skill files |
+| `.github/agents/`, `.github/workflows/` | GitHub Actions and agent config |
+| `**/*.example` | Schema example files for all personal YAML configs — synced on update so you always have the latest structure |
 
 ### How it works
 
 1. **The installer clones the starter kit** — it becomes a standalone local project, not a fork. There's no upstream to accidentally push customer data to.
-2. **`.secops/` templates are committed; runtime data is gitignored.** You commit the schema (`environment.yaml`, `workspaces/`) with your tenant topology so teammates get the same structure. Discovery logs and config stay local.
+2. **`.secops/*.yaml.example` files ship with the framework; your live `.yaml` files are gitignored.** Copy an example to create your personal config — `secops-squad init --secops` does this interactively. Your org's workspace IDs, tenant IDs, and credentials never leave your machine.
 3. **Agents read `.secops/` before touching Azure resources.** This means queries hit the right workspace, respect compliance boundaries, and use the correct tenant — without you repeating context every session.
 4. **All data flows through your authenticated Azure / Microsoft Graph sessions.** The AI sees query results in-session but doesn't retain them after the session ends. No customer telemetry is stored in the repo or sent to third parties.
 

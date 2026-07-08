@@ -1,0 +1,55 @@
+# =============================================================================
+# .secops/alerting/routing.yaml — Alert Routing Configuration (EXAMPLE)
+# =============================================================================
+# Copy to .secops/alerting/routing.yaml and fill in your channels and queues.
+# Rules are evaluated in order — first match wins.
+# Schema Version: 1.0
+# =============================================================================
+
+schema_version: "1.0"
+
+default_channel: "teams://<DEFAULT_SOC_CHANNEL>"
+default_severity_threshold: "Medium"   # Informational | Low | Medium | High | Critical
+
+routes:
+
+  - match:
+      severity: ["High", "Critical"]
+      product: ["Microsoft Defender for Endpoint"]
+    destination:
+      type: "teams"
+      channel: "<ENDPOINT_ALERTS_CHANNEL>"
+      mention: "@<ONCALL_ENDPOINT_HANDLE>"
+    sla_minutes: 15
+
+  - match:
+      severity: ["High", "Critical"]
+      product: ["Microsoft Entra ID Protection", "Microsoft Defender for Identity"]
+    destination:
+      type: "teams"
+      channel: "<IDENTITY_ALERTS_CHANNEL>"
+      mention: "@<ONCALL_IDENTITY_HANDLE>"
+    sla_minutes: 30
+
+  - match:
+      mitre_tactic: ["Exfiltration"]
+    destination:
+      type: "pagerduty"
+      service_id: "<PAGERDUTY_SERVICE_ID>"
+    sla_minutes: 5
+
+  - match:
+      severity: ["Medium", "High", "Critical"]
+      product: ["Microsoft Defender for Cloud"]
+    destination:
+      type: "teams"
+      channel: "<CLOUD_SECURITY_CHANNEL>"
+    sla_minutes: 60
+
+  - match:
+      severity: ["Informational", "Low"]
+    destination:
+      type: "ticket"
+      system: "servicenow"   # servicenow | jira | azure-devops
+      assignment_group: "<L1_ASSIGNMENT_GROUP>"
+    sla_minutes: 480
