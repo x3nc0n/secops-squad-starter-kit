@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "migration-profile.schema.json",
+  "title": "Ping Identity Migration Profile",
+  "description": "Machine-readable operator declaration of migration choices for the Ping Identity → Entra migration framework. Nested under migration_profile: in .secops/identity/ping.yaml.",
+  "type": "object",
+  "required": ["source_of_truth", "strategy", "execution"],
+  "additionalProperties": false,
+  "properties": {
+    "source_of_truth": {
+      "type": "object",
+      "required": ["identity_authority", "per_class_ownership"],
+      "additionalProperties": false,
+      "properties": {
+        "identity_authority": {
+          "type": "string",
+          "enum": ["pingfederate", "pingone", "aic", "hris", "mixed"],
+          "description": "Who is the authoritative identity source: PingFederate, PingOne, AIC, an upstream HRIS, or mixed per-attribute."
+        },
+        "federation_source": {
+          "type": "string",
+          "enum": ["pingfederate", "pingone", "aic"],
+          "description": "Which Ping product issues SAML/OIDC tokens today. Determines the federation trust direction gate."
+        },
+        "hris_system": {
+          "type": ["string", "null"],
+          "description": "Name of the HRIS system (e.g. workday, successfactors). Required when identity_authority is hris or mixed; otherwise null."
+        },
+        "per_class_ownership": {
+          "type": "object",
+          "required": ["users", "credentials_mfa", "groups", "app_assignments", "policies", "saml_sp_connections"],
+          "additionalProperties": false,
+          "description": "Authoritative WRITER for each object class. Only classes declared 'entra' accept writes from migration tooling.",
+          "properties": {
+            "users": {
+              "type": "string",
+              "enum": ["ping", "entra"]
+            },
+            "credentials_mfa": {
+              "type": "string",
+              "enum": ["ping", "entra"]
+            },
+            "groups": {
+              "type": "string",
+              "enum": ["ping", "entra"]
+            },
+            "app_assignments": {
+              "type": "string",
+              "enum": ["ping", "entra"]
+            },
+            "policies": {
+              "type": "string",
+              "enum": ["ping", "entra"]
+            },
+            "saml_sp_connections": {
+              "type": "string",
+              "enum": ["ping", "entra"],
+              "description": "PingFederate SP connections are a distinct migration unit — Ping-owned until explicitly migrated."
+            }
+          }
+        },
+        "per_attribute_authority": {
+          "type": "array",
+          "description": "Optional per-field authority overrides (e.g. manager from HRIS, custom attrs from Ping).",
+          "items": {
+            "type": "object",
+            "required": ["attribute", "authority"],
+            "additionalProperties": false,
+            "properties": {
+              "attribute": {
+                "type": "string",
+                "description": "Attribute name (e.g. manager, department, costCenter)."
+              },
+              "authority": {
+                "type": "string",
+                "enum": ["ping", "hris", "entra"],
+                "description": "Which system is authoritative for this attribute."
+              }
+            }
+          }
+        }
+      }
+    },
+    "strategy": {
+      "type": "object",
+      "required": ["cutover_shape", "group_strategy", "federation_direction", "mfa_strategy", "nameid_strategy"],
+      "additionalProperties": false,
+      "properties": {
+        "cutover_shape": {
+          "type": "string",
+          "enum": ["big_bang", "phased_by_app", "phased_by_population"],
+          "description": "How the cutover will be executed: all at once, app-by-app, or population-by-population."
+        },
+        "group_strategy": {
+          "type": "string",
+          "enum": ["lift_and_shift", "rationalize"],
+          "description": "lift_and_shift: recreate all Ping groups in Entra as-is. rationalize: map to Entra dynamic groups / access packages."
+        },
+        "federation_direction": {
+          "type": "string",
+          "enum": ["ping_idp_into_entra", "entra_idp", "per_app"],
+          "description": "Federation trust direction during and after migration."
+        },
+        "mfa_strategy": {
+          "type": "string",
+          "enum": ["pingid_reenroll", "passkey_bootstrap", "per_population"],
+          "description": "How users will re-enroll MFA in Entra after cutover. pingid_reenroll = PingID-specific re-enrollment campaign."
+        },
+        "nameid_strategy": {
+          "type": "string",
+          "enum": ["map_to_persistent", "use_email", "manual_per_app"],
+          "description": "How PingFederate NameID formats are mapped for Entra SAML. Critical blocker gate — see skills/ping/decisions/03-nameid-strategy.md."
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "required": ["dry_run", "entra_write_tooling"],
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "type": "boolean",
+          "description": "When true, all state-changing operations are simulated — no live writes."
+        },
+        "entra_write_tooling": {
+          "type": "string",
+          "enum": ["microsoft_graph", "entra_native", "none"],
+          "description": "Tooling used for Entra-side writes. none = read-only / not yet configured."
+        }
+      }
+    }
+  }
+}

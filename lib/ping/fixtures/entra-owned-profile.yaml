@@ -1,0 +1,22 @@
+migration_profile:
+  source_of_truth:
+    identity_authority: pingfederate
+    federation_source: pingfederate
+    hris_system: null
+    per_class_ownership:
+      users: entra
+      credentials_mfa: entra
+      groups: entra
+      app_assignments: entra
+      policies: entra
+      saml_sp_connections: entra
+    per_attribute_authority: []
+  strategy:
+    cutover_shape: big_bang
+    group_strategy: rationalize
+    federation_direction: entra_idp
+    mfa_strategy: passkey_bootstrap
+    nameid_strategy: map_to_persistent
+  execution:
+    dry_run: false
+    entra_write_tooling: microsoft_graph
