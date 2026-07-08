@@ -5,7 +5,192 @@
 ## Active Decisions
 
 
-### 2026-06-25T19:31:35-05:00: Foundry Runtime Abstraction — Config, Auth, and Module Layout
+### 2026-07-08T12:14:47-05:00: User directive — use the official Okta MCP server
+
+**By:** x3nc0n (via Copilot)
+
+**What:** Do NOT build a custom Okta MCP server. Adopt Okta's official MCP server (https://github.com/okta/okta-mcp-server, announced 2025-09-22). It is a Python/`uv` server built on Okta's official SDK, exposing User, Group, Application, and Policy management plus system logs, with Device Authorization Grant (interactive) and Private Key JWT (headless) auth. It performs writes as well as reads.
+
+**Why:** Avoid reinventing a maintained, SDK-backed server. Position our own `lib/okta` as the migration-specific, deterministic/idempotent, dry-run-gated complement (bulk export, Okta→Entra mapping, reconciliation, migration-state tracking) rather than duplicating admin CRUD. `skills/okta/okta-mcp-server.md` should become an INTEGRATION guide for the official server (setup, auth, tool surface, when-to-use vs lib/okta), not a spec for a homegrown server.
+
+---
+
+### 2026-07-08T12:14:47-05:00: User directive — source-of-truth is an activation-time decision gate
+
+**By:** x3nc0n (via Copilot)
+
+**What:** Do NOT hardcode an assumption about whether Okta or an upstream HRIS is the identity source of truth. Instead, build the source-of-truth determination in as an explicit **decision point surfaced to the user when they activate the Okta skills in SecOps Squad.** The framework must prompt the operator to declare, per migration engagement: (1) is the true SoT Okta or an upstream HRIS (Workday/etc.); (2) per-object-class writer ownership across phases; (3) per-attribute authority where it splits (e.g. manager/department from HRIS vs app-custom attrs from Okta); (4) group strategy — lift-and-shift vs rationalize to Entra dynamic groups/access packages.
+
+**Why:** Reusable framework across many environments — the SoT answer differs per customer and drives the entire provisioning pipeline (Okta→Entra backbone vs Okta-as-transition-bridge with HRIS→Entra). Capturing it as a guided gate keeps the tooling generic and prevents building the wrong pipeline.
+
+**How to implement:**
+- Kima: add a "source-of-truth decision gate" section to skills/okta (README + migration map) that walks the operator through the questions; record the answer in `.secops/identity/okta.yaml` under a `migration_status`/`source_of_truth` block.
+- Sydnor: `lib/okta` config + migration-state should carry the declared SoT/ownership so export/reconcile behaves accordingly (no writes to a class the operator didn't declare Entra-owned).
+- McNulty: architecture doc treats SoT as an operator-declared INPUT with the ownership matrix as a fill-in-the-blanks artifact, not a fixed assumption.
+
+---
+
+### 2026-07-08T12:25:37-05:00: User directive — build the customizable AI harness, not baked answers
+
+**By:** x3nc0n (via Copilot)
+
+**What:** This entire Okta framework is a REUSABLE framework customized by an individual operator. Every significant decision (source-of-truth, per-class ownership, cutover shape, group strategy, tooling boundary, federation direction, MFA re-enrollment approach, etc.) must be supported by an **AI harness** — not answered by us. Build:
+1. **Markdown decision guides** (the "harness" prompts) that walk an operator through each decision with options, trade-offs, and a recommended default — consumable by both the human and the SecOps Squad agents at skill-activation time.
+2. **A machine-readable config** the operator fills in (e.g. `.secops/identity/okta.yaml` + a dedicated migration config/profile) capturing every declared choice.
+3. **Scripts / lib tooling** that READ the operator's declared choices and behave accordingly (e.g. never write to an object class the operator didn't declare Entra-owned; select cutover workflow per declared shape; dry-run gating driven by config).
+
+**Principle:** The framework encodes the DECISION SPACE and enforces the operator's answers; it does not hardcode a specific customer's answers. Generic + config-driven + agent-guided.
+
+**Routing implications:**
+- Sydnor: config schema + a config loader/validator in lib/okta; tooling reads declared ownership/cutover/dry-run flags and gates behavior.
+- Kima: markdown decision guides (one per decision area) under skills/okta; okta.yaml template with every decision field + commented options.
+- McNulty: architecture doc frames every decision as operator-declared input with a pointer to its decision guide + config field.
+- Carver: tests assert tooling honors config (e.g. refuses writes to non-Entra-owned classes; respects dry-run).
+
+---
+
+### 2026-07-08T12:14:47-05:00: Okta → Entra Migration Map — Approach and Two-Mode Framing
+
+**Date:** 2026-07-08T12:14:47-05:00
+**By:** Kima (SecOps Engineer)
+**Status:** Proposed — team awareness
+
+**What:** Authored `skills/okta/` — a complete reference domain for Okta identity work. Two-mode framing: Mode 1 (Okta → Entra ID Migration) treats Okta as a source system being replaced with migration map as key deliverable. Mode 2 (Okta-Federated Operations) keeps Okta as IdP with agent supporting operational tasks. Mapping uses three-column quality model: ✅ Clean (direct 1:1), ⚠️ Requires action (transformation/lookup), ❌ No map (no Entra equivalent). Key gotchas: MFA enrollments not portable (zero Okta factors migrate; re-enroll required), SAML certs must rotate, OIDC client IDs change, Entra CA most-restrictive vs Okta first-match, regex in dynamic groups unsupported, "Everyone" group has no equivalent, SWA apps cannot migrate. Files: `skills/okta/README.md`, `core-api-overview.md`, `users-and-profiles.md`, `groups-and-rules.md`, `applications-saml-oidc.md`, `policies-and-authenticators.md`, `okta-to-entra-migration-map.md`, `.secops/identity/okta.yaml` template.
+
+---
+
+### 2026-07-08T12:14:47-05:00: Okta → Entra Migration Architecture
+
+**Date:** 2026-07-08T12:14:47-05:00
+**By:** McNulty (Lead)
+**Status:** Proposed — awaiting x3nc0n approval
+
+**What:** Architecture and decision framework for Okta → Microsoft Entra ID identity migration. Phase model: Discover → Map → Pilot/Coexistence → Cutover → Decommission. Coexistence: Okta → Entra sync (one-way, no dual-write). Source-of-truth: Okta for non-migrated, Entra per-object-class as migration completes. Federation default: Okta-as-IdP into Entra during pilot; flip to Entra-as-IdP once >50% apps migrated. Mechanism: SCIM for core lifecycle + batch sync (lib/okta + Graph) for custom attributes. **Recommended cutover default: Phased by Application** (Option B) for bounded risk, independent rollback per-app, distributed readiness. **Tooling boundary (KEY DECISION):** Official Okta MCP Server handles Okta admin/write (interactive CRUD, ad-hoc ops, policy changes, destructive ops with elicitation). `lib/okta` handles Okta read/export (bulk paginated export, mapping, reconciliation, migration-state tracking, dry-run diffing, read-only scopes only). Microsoft Graph handles all Entra writes (user provisioning, group creation, app registration, CA policy, federation). Seam rules: lib/okta has ZERO write capability; all Okta writes through MCP; neither touches Entra; MCP is stateless; lib/okta owns migration state; no duplication. Read-First / Dry-Run Gating: all destructive operations follow dry-run → human review → explicit execute → state update → audit log. Default always `--dry-run`; `--execute` explicit. 10 open questions for x3nc0n in `docs/okta-entra-migration/architecture.md` §6.
+
+---
+
+### 2026-07-08T12:25:37-05:00: lib/okta Contract
+
+**Date:** 2026-07-08
+**Author:** Sydnor
+**Branch:** foundry-integration
+
+**Summary:** Created `lib/okta/` as zero-dependency Node.js client (Node 18+, native `fetch` + `crypto`). All API functions return `{ok, data?, error?, status?}` structured result objects — never throw for API errors. Identical shape to `lib/graph-security`. Auth models: `ssws` (SSWS token header, dev/admin), `clientCredentials` (OAuth2 Basic auth, automated pipelines), `privateKeyJwt` (OAuth2 RS256 JWT client assertion, production/high-security). privateKeyJwt native via `crypto.createSign('RSA-SHA256')` — no JWT library. Secrets from env vars only (`OKTA_API_TOKEN`, `OKTA_CLIENT_SECRET`, `OKTA_PRIVATE_KEY`). Modules: `auth.js` (token acquisition + 5-min early-refresh cache), `users.js` (list/get/search users, groups, factors), `groups.js` (list/get groups, members, rules, apps), `apps.js` (list/get apps, SAML/OIDC settings, users, groups, keys), `policies.js` (sign-on, MFA enrollment, password, access, profile enrollment, IDP discovery policies + authenticators), `utils.js` (Link-header pagination, rate-limit backoff X-Rate-Limit-Reset, error shaping), `index.js` (createClient() factory, constants, re-exports). Read-first posture: NO write/update/delete operations. Library is for inventory and migration analysis only. Pagination: Okta uses Link headers (not OData). Rate limiting: HTTP 429 → read X-Rate-Limit-Reset → wait + jitter → retry (max 3×), falls back to exponential backoff from Retry-After header.
+
+---
+
+### 2026-07-08T12:25:37-05:00: Sydnor — Okta config/gate layer design + migration_profile schema
+
+**By:** Sydnor (Platform Dev)
+**For:** Kima, Carver, Graph write-side alignment
+
+**Summary:** Built the machine-readable half of the Okta migration harness: `lib/okta/config.js` (loader/validator for `migration_profile` block in `.secops/identity/okta.yaml`), `lib/okta/schema/migration-profile.schema.json` (JSON Schema for canonical block), `lib/okta/gate.js` (config-driven gates MUST be called before any state-changing op), fixed GAP-1 in `normalizeOrgUrl` (all trailing slashes + https:// scheme injection).
+
+**Canonical `migration_profile` schema:**
+```yaml
+migration_profile:
+  source_of_truth:
+    identity_authority: okta | hris | mixed
+    hris_system: <string | null>
+    per_class_ownership:
+      users: okta | entra
+      credentials_mfa: okta | entra
+      groups: okta | entra
+      app_assignments: okta | entra
+      policies: okta | entra
+    per_attribute_authority: []  # [{attribute, authority, notes?}]
+  strategy:
+    cutover_shape: big_bang | phased_by_app | phased_by_population
+    group_strategy: lift_and_shift | rationalize
+    federation_direction: okta_idp_into_entra | entra_idp | per_app
+    mfa_strategy: reenroll_campaign | passkey_bootstrap | per_population
+  execution:
+    dry_run: true | false
+    entra_write_tooling: microsoft_graph | entra_native | none
+```
+
+Unknown enum values → validation error with field name + invalid value + valid options listed. `per_attribute_authority` optional; all others required.
+
+**Gate contract (all sync, never throw, return `{ok, data?, error?}`):**
+- `assertEntraOwned(profile, objectClass)` — returns `{ok:true}` only if `per_class_ownership[objectClass] === 'entra'`; blocks write if still Okta-owned
+- `isDryRun(profile)` → boolean — returns true if `execution.dry_run === true`
+- `dryRunGuard(profile, opDescription)` — returns null (proceed) when dry_run false; returns `{ok:true, data:{dryRun:true, would:'...'}}` when dry_run true (caller short-circuits, no live call made)
+- `cutoverWorkflow(profile)` → `{ok:true, data:{cutoverShape, groupStrategy, federationDirection, mfaStrategy}}` — returns declared strategy block; callers use `cutoverShape` to select workflow path (big_bang | phased_by_app | phased_by_population)
+
+**config.js contract:** `loadMigrationProfile(filePath?)` → `{ok:true, data} | {ok:false, error}` (defaults to `<cwd>/.secops/identity/okta.yaml`, never throws). `validateProfile(profile)` → `string[]` (exported for unit testing). When absent block: `{ok:false}` tells operator to run `skills/okta/decisions/` guides.
+
+---
+
+### 2026-07-08T12:25:37-05:00: Decision: Okta Decision Harness + migration_profile Schema
+
+**Date:** 2026-07-08T12:25:37-05:00
+**By:** Kima
+**Status:** Authored — for Scribe to merge into decisions.md
+
+**What:** Built the complete operator-customization harness for the Okta migration framework. Reusable framework encoding the decision space — does NOT hardcode specific customer answers.
+
+**Artifacts:** Seven Decision Guides in `skills/okta/decisions/` (README + 01-source-of-truth.md through 07-execution-gates.md). Each guide: decision statement → enum options → trade-offs → recommended default with rationale → rollback implication → exact config field written. **Canonical `migration_profile` Schema in `.secops/identity/okta.yaml`:** Added to top of okta.yaml above `orgs` block with full schema and conservative defaults (dry_run: true, all classes okta-owned). Sydnor's `lib/okta/config.js` validates this block on startup; `gate.js` enforces `dry_run` and `per_class_ownership` before every write operation.
+
+**`skills/okta/okta-mcp-server.md` — Full Rewrite:** Rewritten from homegrown Node.js server spec into integration guide for **official Okta MCP server** (https://github.com/okta/okta-mcp-server, GA). Covers: What it is (Python/uv, official SDK, GA, performs writes), Setup (git clone + uv sync bare-metal or Docker Compose production), Auth (Device Authorization Grant interactive/local + Private Key JWT headless/CI), Tool surface (User/Group/App/Policy CRUD + System Logs; scope-based tool loading; elicitation for destructive ops), Secure credential handling (scoped access, env vars only, audit via System Log), **"When to use" boundary table** (Official MCP for interactive Okta writes vs lib/okta for bulk read/export/reconcile vs Microsoft Graph for all Entra writes), Integration with per_class_ownership gate (MCP respects declared class ownership).
+
+**Key Principles Encoded:** (1) Framework encodes decision space, not customer answers — every guide prompts operator; nothing hardcoded. (2) Single writer per object class — per_class_ownership prevents split-brain. (3) Tooling seam is hard — MCP owns Okta writes; lib/okta owns Okta reads; Graph owns all Entra writes. No crossing. (4) dry_run: true is permanent default — must be explicitly changed to false for execute runs, then reset. (5) MFA never portable — re-enrollment unavoidable; only when and how to structure it.
+
+**Sydnor Dependency Note:** `lib/okta/config.js` and `gate.js` must validate and enforce the `migration_profile` schema above. Enum values in this harness are canonical valid values — unknown values cause config validation failure with clear error pointing to relevant decision guide.
+
+---
+
+### 2026-07-08T12:25:37-05:00: Carver Review — lib/okta config/gate harness
+
+**Date:** 2026-07-08T12:25:37-05:00
+**Reviewer:** Carver (Tester/QA)
+**Scope:** `lib/okta/config.js`, `lib/okta/gate.js`, `lib/okta/schema/migration-profile.schema.json`, `migration_profile` block in `.secops/identity/okta.yaml`
+**New test files:** `lib/okta/config.test.js` (57 tests), `lib/okta/gate.test.js` (64 tests)
+**Full suite totals:** `npm test` → **626 pass, 0 fail** (was 505 before this session)
+
+**Verdict: PASS.** All contract obligations met. GAP-1 confirmed fixed. No gaps requiring separate fix agent.
+
+**GAP-1 Re-verification ✓:** Two previously-intentional-failing tests in `utils — normalizeOrgUrl` now PASS: `[BUG] strips multiple trailing slashes` (→ PASS: `/\/+$/` in utils.js strips all slashes) and `[GAP-1] schemeless orgUrl should gain https:// prefix` (→ PASS: scheme guard added). **Confirmed: no assertion weakened.** Both tests carry original `assert.match` and `assert.equal` assertions with specific expected values. Implementation was fixed; tests not changed.
+
+**What Passes ✓:** config.js: Real operator yaml loads/validates → `{ok:true, data}` ✓; error messaging for missing file, missing block; invalid enums (all 8 fields individually rejected with field name + invalid value + valid options); missing required sections (each field-named error); multi-error accumulation; per_attribute_authority validation. gate.js: assertEntraOwned all 5 classes × 2 states (10 combinations), each tested independently with blockage explanations; unknown class error; null/undefined/empty profile → `{ok:false}`. isDryRun: true, false, null, undefined, missing execution block, string "true" (falsy), number 1 (falsy) — only boolean true returns true ✓. dryRunGuard: `{ok:true, data:{dryRun:true, would:...}}` when dry_run true ✓; null when dry_run false ✓; proven not to call fetch (throw-fetch installed; no error) ✓; composability pattern ✓; live call when dry_run false ✓. cutoverWorkflow: all 3 shapes, all 4 data fields, workflow-selection switch ✓. Integration: loadMigrationProfile(real yaml) → gate chain — all 5 classes blocked (all okta-owned), dryRunGuard short-circuits, cutoverWorkflow returns declared shape ✓. entra-owned fixture: users/groups/app_assignments pass; credentials_mfa/policies blocked ✓. Contract: every config/gate path returns structured object or boolean — never throws ✓. `{ok:false}` on absent block carries actionable operator guidance ✓. Gates honor operator declared choices (config is read, not hardcoded) ✓. Tooling doesn't hardcode behavior — all gate outcomes driven by `migration_profile` values ✓. `isDryRun` accepts only boolean true; truthy strings/numbers return false ✓.
+
+---
+
+### 2026-07-08T12:14:47-05:00: Carver Review — lib/okta
+
+**Date:** 2026-07-08T12:14:47-05:00
+**Reviewer:** Carver (Tester/QA)
+**Scope:** `lib/okta/` — zero-dependency Okta API client (Sydnor's commit)
+**Test file:** `lib/okta/okta.test.js` (164 tests, 162 pass, 2 intentional failures)
+
+**Verdict: CONDITIONAL PASS — requires coordinator sign-off on GAP-2.** The `{ok,...}` contract and rate-limit/pagination handling are both present and working. Implementation does not throw. Two gaps require attention before production-ready.
+
+**What Passes ✓:** `{ok,...}` contract: Every network function returns structured result object. None throw. Verified by 16 dedicated no-throw assertions and 100+ individual function tests ✓. Auth header shapes: `SSWS {token}` for ssws mode; `****** for OAuth modes ✓. Rate-limit handling: HTTP 429 → reads `X-Rate-Limit-Reset` (epoch seconds), retries up to `MAX_RETRIES = 3`, returns `{ok:false, status:429}` after exhaustion ✓. Pagination: Link-header `rel="next"` cursor extracted by `extractNextLink`; list functions accept `options.nextLink` for continuation; `paginatedGet()` auto-traversal helper present; multi-page traversal test confirms 3-page accumulation ✓. Token caching + clearTokenCache: Confirmed one fetch per cached window; `clearTokenCache()` forces re-fetch ✓. All four modules (users, groups, apps, policies): Happy-path, 404/403 negatives, empty-result edge cases pass ✓.
+
+**GAP-1 — `normalizeOrgUrl` does not add `https://` (P1 — Bug):** Location: `lib/okta/utils.js` → `normalizeOrgUrl()`. Problems: `/\/$/.` replaces exactly ONE trailing slash (https://acme.okta.com/// becomes https://acme.okta.com// — still broken); `'dev-123456.okta.com'` (no scheme) stays as-is; downstream `fetch` calls use relative URL, causing runtime crash or wrong endpoint. Evidence: Two intentional failing tests in `utils — normalizeOrgUrl`. Fix required: strip ALL trailing slashes + add https:// scheme if missing.
+
+**GAP-2 — No write operations (P2 — Design decision, needs sign-off):** Sydnor's stated intent: `index.js` documents "READ-FIRST. Write operations (create/update/delete) intentionally absent — must be explicit and rare." Task spec referenced client "mirroring lib/graph-security" which includes write operations. Impact: Callers cannot create users, add group members, assign apps, or update policies through this library. Migration tooling needing write access must call Okta REST API directly. **Coordinator action required:** Confirm whether read-first scope acceptable given migration use-case, or whether Sydnor should add minimal write surface (at minimum: deactivate user, add/remove group member).
+
+**No Contract Violations:** Every path returns `{ok: boolean, data?, error?, status?}` — never throws ✓. Rate-limit handling present and retries correctly ✓. Link-header pagination present and cursor-follows correctly ✓. SSWS and OAuth header formats correct ✓. This review does NOT block merge on contract grounds. GAP-1 is a bug that should be fixed; GAP-2 is a scope decision for coordinator.
+
+---
+
+### 2026-07-08T12:25:37-05:00: Coordinator sign-off — lib/okta is READ-FIRST by design (GAP-2 resolved)
+
+**By:** Squad (Coordinator), on x3nc0n's architecture
+
+**Decision:** APPROVE the read-first posture of `lib/okta`. Write operations (create/update/deactivate users, group membership changes, app assignments, policy edits) are INTENTIONALLY absent from `lib/okta`.
+
+**Rationale:** Per the tooling-boundary decision, the **official Okta MCP server** owns interactive/admin writes on the Okta side, and **Microsoft Graph** owns writes on the Entra side. `lib/okta` is the deterministic read/extract/reconcile/dry-run complement. Adding a write surface to `lib/okta` would duplicate the official server and violate the single-writer-per-object-class continuity principle.
+
+**Consequence:** Carver's GAP-2 is resolved as working-as-designed. Any future write need on the Okta side routes to the official MCP server, gated by the operator's declared per-class ownership config.
+
+**Still open:** GAP-1 (normalizeOrgUrl P1 bug) must be fixed by Sydnor and re-verified by Carver.
+
+---
+
+## Archived Decisions
+
+See decisions-archive.md for Foundry entries (archived 2026-07-08, all entries older than 7 days)
 
 
 

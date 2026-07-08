@@ -2,6 +2,128 @@
 
 ## Archived Decisions (older than 7 days)
 
+### 2026-06-25T19:31:35-05:00: Foundry Runtime Abstraction — Config, Auth, and Module Layout
+
+**Date:** 2026-06-25T19:31:35-05:00
+**By:** Sydnor (Platform Dev)
+**Status:** Proposed — awaiting McNulty approval before implementation
+
+**Summary:** Design decisions for turning the `foundry-integration` branch scaffolding into hardened runtime routing in Node.js (CommonJS). Canonical config location is `.secops/foundry.yaml` using snake_case. Module layout covers `lib/foundry/` with index, config, auth, telemetry, and provider abstractions. Auth uses Azure CLI shell-out with caching. No new npm dependencies — call REST directly using `fetch` (Node ≥18 built-in). Telemetry writes to `.secops/foundry-telemetry.jsonl`.
+
+---
+
+### 2026-06-25T19:35:20-05:00: Foundry Safety Gates — Required Controls Before Real Data Egress
+
+**Date:** 2026-06-25T19:35:20-05:00
+**By:** Kima (SecOps Engineer)
+**Status:** Proposed — pending McNulty integration into implementation plan
+
+**Summary:** Specifies 7 minimum enforceable safety gates (P0/P1/P2) required before real customer data, pentest output, SARIF findings, or OT/ICS CTI routes through Foundry. Core gates: secret/credential scanner (P0, fail-closed), audit log (P0, always-on), PII/IP/hostname redactor (P1, fail-closed for OT), human confirm (P1, high-sensitivity payloads), egress allowlist (P2), cost cap (P2), compliance pre-check (P2). Data classification: never send raw credentials/PII/unredacted OT topology; scrub SARIF/pentest/CTI before routing; OK to route anonymized logic/MITRE mappings/public threat intel. OT/ICS boundary enforced: analysis IN → defensive detections OUT only.
+
+---
+
+### 2026-06-25T19:31:35-05:00: Foundry Integration — Consolidated Architecture Plan
+
+**Date:** 2026-06-25T19:31:35-05:00
+**By:** McNulty (Lead)
+**Status:** Approved — this is the canonical plan; supersedes individual specialist proposals
+
+**Summary:** Foundry integration architecture (foundry-integration branch, single commit) is documentation and scaffolding only — no executable runtime code. Missing: runtime routing (Python pseudo-code in Node.js project), provider abstraction (endpoint shape conflict), auth module, fallback contract, config schema (three incompatible schemas), safety/governance runtime enforcement, testing (zero tests), deploy ops (future-dated API version), docs (Python SDK references, prose-only safety policy). Decisions made by McNulty: (1) config casing is snake_case (YAML convention wins over JSON), (2) single canonical config file is `.secops/foundry.yaml`, (3) auth via Azure CLI with fallback to env var, (4) no new npm dependencies, (5) telemetry to JSONL with daily cost ceiling enforcement, (6) CLI surface via new `secops-squad foundry` subcommand + `doctor` check, (7) deploy script API version fixed to `2025-04-01-preview`, (8) impact on 9 files documented.
+
+---
+
+### 2026-06-25T19:31:35-05:00: Foundry Integration Test & Merge Quality Gates
+
+**Date:** 2026-06-25T19:31:35-05:00
+**By:** Sydnor (Platform Dev)
+**Status:** Proposed — pending Carver implementation
+
+**Summary:** Quality gate framework for Foundry integration branch. Requires: (1) lint pass (ESLint), (2) all config fixtures validated (valid/disabled/malformed/partial schemas), (3) secrets scan (detect-secrets), (4) no hardcoded credentials in any examples, (5) auth module token caching verified, (6) cost cap enforcement tested with mock payloads, (7) docs pass spell-check and link validation, (8) safety gate code audited by Carver. Blocking issues: config schema not yet executable, auth module not yet written, safety gate implementation not started. Unblocking path: McNulty's architecture decision (above) resolves schema conflicts. Gate implementation (Kima/Sydnor) follows.
+
+---
+
+### 2026-06-25T19:31:35-05:00: Kima — Foundry F-001 Fail-Closed Endpoint Contract
+
+**Date:** 2026-06-25T19:31:35-05:00
+**By:** Kima (SecOps Engineer)
+**Status:** Proposed — for architect review
+
+**Summary:** Defines fail-closed endpoint contract for Foundry. The endpoint URL in `.secops/foundry.yaml` must match the expected Foundry hostname pattern (`*.cognitiveservices.azure.com`). Hard-coded allowlist check prevents misconfiguration from routing to rogue endpoint. Fallback contract when endpoint is unreachable: return `{ok:false, error:"endpoint unreachable"}` without trying alternate provider or degrading to smaller model. Audit trail required for every endpoint access attempt. No automatic failover — fails loud with diagnostic message.
+
+---
+
+### 2026-06-25T21:30:00-05:00: Sydnor — Foundry Provider Clients
+
+**Date:** 2026-06-25T21:30:00-05:00
+**By:** Sydnor (Platform Dev)
+**Status:** Proposed — for architecture review
+
+**Summary:** Provider client abstraction for Foundry. Two provider types: Anthropic (POST to `/anthropic/v1/messages`) and OpenAI reasoning (POST to `/openai/deployments/{name}/chat/completions`). Each provider client handles: auth header injection (Bearer token), request shaping per API (messages format, system prompt handling), response extraction (content/usage/latency), rate-limit retry (429 back-off), timeout handling (30s default). No dependency on SDK packages. REST call via native `fetch` only. Provider selection driven by `model_deployments[].provider` field in config.
+
+---
+
+### 2026-06-25T21:40:00-05:00: Sydnor — Foundry Dispatch Orchestrator
+
+**Date:** 2026-06-25T21:40:00-05:00
+**By:** Sydnor (Platform Dev)
+**Status:** Proposed — for architecture review
+
+**Summary:** Dispatch orchestrator routes messages to the appropriate Foundry provider. Input: messages array + config profile. Process: (1) validate config loaded, (2) read `active_model` field, (3) lookup model in `model_deployments[]`, (4) extract provider type, (5) invoke provider client, (6) append telemetry record, (7) return `{ok, content, usage, latencyMs, provider, cached}` result. Handles: token caching (check auth module first, acquire if expired), cost ceiling check (block if daily spend + estimated call > ceiling), dry-run mode passthrough (if dry_run mode configured, short-circuit with `{ok:true, would:"..."}` and no API call).
+
+---
+
+### 2026-06-25T21:50:00-05:00: Kima — Foundry Safety Gates
+
+**Date:** 2026-06-25T21:50:00-05:00
+**By:** Kima (SecOps Engineer)
+**Status:** Proposed — implementation ownership TBD
+
+**Summary:** Implementation notes for Foundry safety gates. Gate 1 (secret scanner): run `detect-secrets` regex patterns against serialized payload before dispatch; on match, block and log to audit trail with field name and pattern matched. Gate 2 (audit log): write JSONL record to `.secops/foundry-audit.jsonl` with: timestamp, actor (git user or agent session ID), task_type, payload_sha256 (SHA-256 of pre-redaction payload), payload_size_bytes, model, endpoint, tokens_input/output, cost_usd_estimate, gate_result (allowed/blocked/user_declined), block_reason. Gate 3 (redactor): for high-sensitivity or OT payloads, redact IPv4/IPv6, FQDNs, NetBIOS names, UUIDs, email addresses with deterministic placeholders. Gate 4 (human confirm): for OT/pentest/incident payloads, pause and require explicit human approval before send. Gates 5-7 (allowlist, cost cap, compliance pre-check) are detection-only in initial release.
+
+---
+
+### 2026-06-25T22:00:00-05:00: Sydnor — Foundry CLI Surface
+
+**Date:** 2026-06-25T22:00:00-05:00
+**By:** Sydnor (Platform Dev)
+**Status:** Proposed — for architecture review
+
+**Summary:** New CLI subcommand `secops-squad foundry [status|test|route]`. Status: check if `.secops/foundry.yaml` exists, is valid, and endpoint is reachable; report active model and provider type. Test: run a small diagnostic message through the active model; report latency and token usage. Route: show the currently configured provider routing (active_model → provider type → endpoint path). Also: extend `doctor` command with new `checkFoundry(rootDir)` check that returns pass (enabled + reachable), warn (config present but disabled, or az CLI not logged in), or skipped (no config file). Foundry health check is not a blocker — Foundry is opt-in.
+
+---
+
+### 2026-06-25T22:10:00-05:00: Carver — Foundry Phase 1 Verdict (FAIL — F-002 found)
+
+**Date:** 2026-06-25T22:10:00-05:00
+**By:** Carver (Tester/QA)
+**Status:** Blocking — requires remediation
+
+**Summary:** Phase 1 security review of `foundry-integration` branch identified F-002: secrets in codebase. Finding: `.secops/foundry.yaml.example` contains placeholder values `REPLACE_ME`, but `secrets/foundry-example.env` contains actual (but redacted) format strings with key material pattern leakage. Additionally, deploy script `.ps1` file has hardcoded Azure resource group name and subscription placeholder that looks like it could be copy-pasted with real values, creating injection risk. Verdict: FAIL. Requirement: implement detect-secrets scanning in CI before merge. Implement `.gitignore` rules for `*.env` and `.secops/foundry-audit.jsonl` + `.secops/foundry-compliance-review.yaml`.
+
+---
+
+### 2026-06-25T22:20:00-05:00: Sydnor — Foundry F-002 secret-scan fail-closed redaction
+
+**Date:** 2026-06-25T22:20:00-05:00
+**By:** Sydnor (Platform Dev)
+**Status:** Proposed — implementation in progress
+
+**Summary:** Remediation for F-002 (secrets in codebase). Actions: (1) implement pre-dispatch secret scanner in `lib/foundry/index.js` — wrapper function that runs `detect-secrets` patterns on every payload before Foundry API call; on match, log to audit trail and return `{ok:false, error:"payload contains suspected secret pattern: [pattern name]"}`; (2) update `.gitignore` to block `*.env`, `.secops/foundry-audit.jsonl`, `.secops/foundry-compliance-review.yaml`; (3) rewrite `.secops/foundry.yaml.example` to remove all format string leakage, use only clearly-marked PLACEHOLDER comments; (4) update deploy scripts to not contain subscription/resource group names — use env vars only.
+
+---
+
+### 2026-06-25T22:30:00-05:00: Carver — Foundry Phase 1 Re-Verification (PASS — CLEARED FOR MERGE)
+
+**Date:** 2026-06-25T22:30:00-05:00
+**By:** Carver (Tester/QA)
+**Status:** Approved — foundry-integration branch cleared for merge
+
+**Summary:** Phase 1 re-verification after F-002 remediation. Checks: (1) secret scan patterns implemented and tested (✓), (2) detect-secrets baseline created and integrated into CI (✓), (3) `.gitignore` updated and secrets previously in repo purged (✓), (4) `.secops/foundry.yaml.example` rewritten without format string leakage (✓), (5) deploy scripts updated to use env vars only (✓), (6) lint pass (✓), (7) config fixtures validated (✓), (8) safety gate code audited for regex bypassability (✓). Verdict: PASS. Blocking issues resolved. Branch is cleared for merge to main with advisory that Foundry feature is opt-in (disabled by default) and runtime implementation work continues on feature branches.
+
+---
+
+## Archived Decisions (older than 7 days)
+
 ### 2026-04-28T09:16:43-05:00: Team composition and role assignments
 
 **By:** Sydnor (on behalf of the squad)
