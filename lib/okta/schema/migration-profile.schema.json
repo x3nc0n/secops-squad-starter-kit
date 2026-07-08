@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "migration-profile.schema.json",
+  "title": "Okta Migration Profile",
+  "description": "Machine-readable operator declaration of migration choices for the Okta → Entra identity migration framework. Nested under migration_profile: in .secops/identity/okta.yaml.",
+  "type": "object",
+  "required": ["source_of_truth", "strategy", "execution"],
+  "additionalProperties": false,
+  "properties": {
+    "source_of_truth": {
+      "type": "object",
+      "required": ["identity_authority", "per_class_ownership"],
+      "additionalProperties": false,
+      "properties": {
+        "identity_authority": {
+          "type": "string",
+          "enum": ["okta", "hris", "mixed"],
+          "description": "Who is the authoritative identity source: Okta, an upstream HRIS (Workday/etc.), or mixed per-attribute."
+        },
+        "hris_system": {
+          "type": ["string", "null"],
+          "description": "Name of the HRIS system (e.g. workday, successfactors). Required when identity_authority is hris or mixed; otherwise null."
+        },
+        "per_class_ownership": {
+          "type": "object",
+          "required": ["users", "credentials_mfa", "groups", "app_assignments", "policies"],
+          "additionalProperties": false,
+          "description": "Authoritative WRITER for each object class. Only classes declared 'entra' accept writes from migration tooling.",
+          "properties": {
+            "users": {
+              "type": "string",
+              "enum": ["okta", "entra"]
+            },
+            "credentials_mfa": {
+              "type": "string",
+              "enum": ["okta", "entra"]
+            },
+            "groups": {
+              "type": "string",
+              "enum": ["okta", "entra"]
+            },
+            "app_assignments": {
+              "type": "string",
+              "enum": ["okta", "entra"]
+            },
+            "policies": {
+              "type": "string",
+              "enum": ["okta", "entra"]
+            }
+          }
+        },
+        "per_attribute_authority": {
+          "type": "array",
+          "description": "Optional per-field authority overrides (e.g. manager from HRIS, custom attrs from Okta).",
+          "items": {
+            "type": "object",
+            "required": ["attribute", "authority"],
+            "additionalProperties": false,
+            "properties": {
+              "attribute": {
+                "type": "string",
+                "description": "Attribute name (e.g. manager, department, costCenter)."
+              },
+              "authority": {
+                "type": "string",
+                "enum": ["okta", "hris", "entra"],
+                "description": "Which system is authoritative for this attribute."
+              }
+            }
+          }
+        }
+      }
+    },
+    "strategy": {
+      "type": "object",
+      "required": ["cutover_shape", "group_strategy", "federation_direction", "mfa_strategy"],
+      "additionalProperties": false,
+      "properties": {
+        "cutover_shape": {
+          "type": "string",
+          "enum": ["big_bang", "phased_by_app", "phased_by_population"],
+          "description": "How the cutover will be executed: all at once, app-by-app, or population-by-population."
+        },
+        "group_strategy": {
+          "type": "string",
+          "enum": ["lift_and_shift", "rationalize"],
+          "description": "lift_and_shift: recreate all Okta groups in Entra as-is. rationalize: map to Entra dynamic groups / access packages."
+        },
+        "federation_direction": {
+          "type": "string",
+          "enum": ["okta_idp_into_entra", "entra_idp", "per_app"],
+          "description": "Federation trust direction during and after migration."
+        },
+        "mfa_strategy": {
+          "type": "string",
+          "enum": ["reenroll_campaign", "passkey_bootstrap", "per_population"],
+          "description": "How users will re-enroll MFA in Entra after cutover."
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "required": ["dry_run", "entra_write_tooling"],
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "type": "boolean",
+          "description": "When true, all state-changing operations are simulated — no live writes."
+        },
+        "entra_write_tooling": {
+          "type": "string",
+          "enum": ["microsoft_graph", "entra_native", "none"],
+          "description": "Tooling used for Entra-side writes. none = read-only / not yet configured."
+        }
+      }
+    }
+  }
+}
