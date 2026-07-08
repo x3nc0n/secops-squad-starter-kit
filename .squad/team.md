@@ -1,6 +1,6 @@
 # Team Roster
 
-> {One-line project description}
+> SecOps Squad **starter-kit dev team** — the crew that builds and maintains this reusable framework (identity-migration tooling: Okta/Ping → Entra ID, MCP servers, skills, CLI). This roster is the *maintainer's* dev squad (bradygaster/squad pattern). It is NOT the product roster consumers get — install strips it.
 
 ## Coordinator
 
@@ -12,12 +12,14 @@
 
 | Name | Role | Charter | Status |
 |------|------|---------|--------|
-| {Name} | {Role} | `.squad/agents/{name}/charter.md` | ✅ Active |
-| {Name} | {Role} | `.squad/agents/{name}/charter.md` | ✅ Active |
-| {Name} | {Role} | `.squad/agents/{name}/charter.md` | ✅ Active |
-| {Name} | {Role} | `.squad/agents/{name}/charter.md` | ✅ Active |
+| Morpheus | Lead | `.squad/agents/morpheus/charter.md` | ✅ Active |
+| Keymaker | SecOps / Identity Engineer | `.squad/agents/keymaker/charter.md` | ✅ Active |
+| Tank | Platform Dev (CLI/MCP/framework) | `.squad/agents/tank/charter.md` | ✅ Active |
+| Seraph | Tester / QA (reviewer gate) | `.squad/agents/seraph/charter.md` | ✅ Active |
 | Scribe | Session Logger | `.squad/agents/scribe/charter.md` | 📋 Silent |
 | Ralph | Work Monitor | — | 🔄 Monitor |
+
+> Deferred (available on request, no surviving history): **Oracle** (KQL/analytics), **Sentinel** (SOAR/automation).
 
 ## Coding Agent
 
@@ -54,7 +56,7 @@
 
 ## Project Context
 
-- **Owner:** {user name}
-- **Stack:** {languages, frameworks, tools}
-- **Description:** {what the project does, in one sentence}
-- **Created:** {timestamp}
+- **Owner:** x3nc0n
+- **Stack:** Node.js CLI, Markdown AI harness, MCP servers, Bash/PowerShell installers; targets Microsoft Sentinel/Defender/Entra + identity providers (Okta, Ping).
+- **Description:** Reusable SecOps AI-team starter kit with identity-provider migration tooling (Okta/Ping → Entra ID) and framework for operating IdP-federated environments.
+- **Cast universe:** The Matrix (dev team). Recast 2026-07-08 from prior assignment; per-agent memory preserved.

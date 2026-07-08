@@ -136,6 +136,14 @@ main() {
   cp -r "$temp_dir" "$INSTALL_DIR"
   rm -rf "$INSTALL_DIR/.git"
 
+  echo -e "${CYAN}Resetting squad cast for fresh consumer install...${RESET}"
+  node "$INSTALL_DIR/scripts/reset-squad.js" "$INSTALL_DIR"
+  if [ $? -ne 0 ]; then
+    echo -e "${RED}Squad reset failed. Aborting.${RESET}"
+    rm -rf "$INSTALL_DIR"
+    exit 1
+  fi
+
   # Initialize a fresh git repo
   cd "$INSTALL_DIR"
   git init --quiet
