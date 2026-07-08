@@ -4,6 +4,13 @@
 
 ## Learnings
 
+[CMD] **Foundry Fable-5 Activation Draft PR** (2026-07-08)
+- **Draft PR opened:** Branch `feat/foundry-fable5-activate` off `origin/main` with draft PR #4 https://github.com/x3nc0n/secops-squad-starter-kit/pull/4 — "feat(foundry): activate Claude Fable 5 (draft — pending quota grant)". Ready to merge once Azure quota is granted and deployment reaches Succeeded.
+- **Config delta applied to `.secops/foundry.yaml`:** `active_model` changed from `o4-mini` → `claude-fable-5`; `model_deployments` reordered so `claude-fable-5` is index [0]; `claude-fable-5` status changed from `pending_quota` → `active`; `o4-mini` status changed from `active` → `standby`.
+- **Doc updates:** `docs/foundry-fable5-integration.md` Status section updated from "Optional & Deprecated-When-in-Catalog" to "Active Model (Azure deployment pending quota grant)" — wording reflects quota was requested 2026-07-08, Azure deploy not yet live.
+- **Merge checklist:** (1) Confirm Azure TPM quota for `AIServices.GlobalStandard.claude-fable-5` (SC-OnlineLZ-00/eastus2) is granted; (2) run `scripts/deploy-foundry-fable5.ps1` and confirm provisioningState=Succeeded; (3) smoke-test inference against endpoint; (4) mark PR ready and merge.
+- **Branch hygiene:** Used explicit `git add -- <path>` (never `git add -A`) to avoid staging unrelated untracked files (`--update/`, `.squad/skills/`, `docs/m365-copilot-sentinel-logging.md`, `templates/bicep/README.md`).
+
 [CMD] **Community Skill Import — Full 754-Skill Batch** (2026-05-27T14:32:50.930Z)
 - **Executed full import of 754 skills from mukul975/Anthropic-Cybersecurity-Skills:** Created `scripts/import-community-skills.js` to fetch, filter, flatten, and transform upstream content into hybrid frontmatter.
 - **Hybrid frontmatter preserved all framework metadata:** MITRE ATT&CK, NIST CSF, NIST 800-53, CIS Controls, ATLAS mappings all retained in frontmatter for compliance/detection alignment.

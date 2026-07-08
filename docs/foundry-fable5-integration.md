@@ -20,12 +20,13 @@ The GitHub Copilot model (currently Claude 3.5 Sonnet) handles the vast majority
 
 ---
 
-## Status: Optional & Deprecated-When-in-Catalog
+## Status: Active Model (Azure deployment pending quota grant)
 
-- **Deployment:** Optional via bootstrap script (see "How to Deploy" below)
-- **Fallback:** If not deployed, secops-squad works normally with the standard model
+- **Configured model:** `claude-fable-5` is the configured `active_model` in `.secops/foundry.yaml` as of 2026-07-08
+- **Azure deployment:** Azure TPM quota for `AIServices.GlobalStandard.claude-fable-5` was requested on 2026-07-08 (SC-OnlineLZ-00 / eastus2). The Azure deployment must be run once quota is granted before inference is available.
+- **Standby fallback:** `o4-mini` remains configured as `standby` — if the Fable 5 deployment is not yet live, agents fall back to the standard model
 - **Deprecation:** When Fable 5 enters the GitHub Copilot model catalog, this integration will be removed
-- **No hard dependency:** Your secops-squad workflows are not blocked if you skip this
+- **No hard dependency:** Your secops-squad workflows are not blocked if the Azure deployment is not yet complete
 
 ---
 
