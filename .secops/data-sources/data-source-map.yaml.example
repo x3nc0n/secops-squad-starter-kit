@@ -1,0 +1,52 @@
+# =============================================================================
+# .secops/data-sources/data-source-map.yaml — Data Source Map (EXAMPLE)
+# =============================================================================
+# Copy to .secops/data-sources/data-source-map.yaml.
+# Agents consult this before writing queries to know where each table lives.
+# Schema Version: 1.0
+# =============================================================================
+
+schema_version: "1.0"
+
+sources:
+
+  # --- Sentinel Analytics Tier (full KQL) ---
+
+  SecurityEvent:
+    location: "sentinel"
+    workspace: "<WORKSPACE_YAML_STEM>"   # stem of .secops/workspaces/<stem>.yaml
+    tier: "Analytics"
+    daily_gb: <ESTIMATED_GB>
+    ingestion_method: "ama-agent"        # ama-agent | mma-agent | api | dcr | connector | s3-to-eventhub
+    notes: "Windows Security Events via Azure Monitor Agent"
+
+  SigninLogs:
+    location: "sentinel"
+    workspace: "<WORKSPACE_YAML_STEM>"
+    tier: "Analytics"
+    daily_gb: <ESTIMATED_GB>
+    ingestion_method: "connector"
+    notes: "Entra ID diagnostic settings"
+
+  # --- Sentinel Basic / Sentinel data lake tier ---
+
+  # AWSCloudTrail:
+  #   location: "sentinel"
+  #   workspace: "<WORKSPACE_YAML_STEM>"
+  #   tier: "Basic"
+  #   daily_gb: <ESTIMATED_GB>
+  #   ingestion_method: "s3-to-eventhub"
+  #   source_cloud: "aws"
+
+  # --- ADX tables ---
+
+  # NetFlowLogs:
+  #   location: "adx"
+  #   cluster: "<ADX_CLUSTER_NAME>"
+  #   database: "<ADX_DATABASE>"
+  #   tier: "Analytics"
+  #   daily_gb: <ESTIMATED_GB>
+  #   ingestion_method: "streaming-ingestion"
+
+cross_cloud_identity_mapping:
+  method: "none"    # email-based | custom-table | none

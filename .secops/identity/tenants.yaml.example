@@ -1,0 +1,33 @@
+# =============================================================================
+# .secops/identity/tenants.yaml — Multi-Tenant Topology (EXAMPLE)
+# =============================================================================
+# Copy to .secops/identity/tenants.yaml and fill in your tenant topology.
+# Schema Version: 1.0
+# =============================================================================
+
+schema_version: "1.0"
+
+tenants:
+
+  - id: "<PRIMARY_TENANT_ID>"
+    name: "<ORG_NAME> Production"
+    type: "primary"    # primary | secondary | managed | lighthouse-delegated | csp
+    cloud: "azure-commercial"    # azure-commercial | azure-government | azure-china
+    notes: "Primary org tenant, all SOC personnel have accounts here"
+
+  # - id: "<SECONDARY_TENANT_ID>"
+  #   name: "<ORG_NAME> Dev/Test"
+  #   type: "secondary"
+  #   cloud: "azure-commercial"
+
+  # --- Lighthouse customer example ---
+  # - id: "<CUSTOMER_TENANT_ID>"
+  #   name: "<CUSTOMER_NAME>"
+  #   type: "lighthouse-delegated"
+  #   cloud: "azure-commercial"
+
+cross_tenant_access:
+  b2b:
+    enabled: false
+  lighthouse:
+    enabled: false

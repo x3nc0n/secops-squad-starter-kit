@@ -1,0 +1,37 @@
+# =============================================================================
+# .secops/compliance/requirements.yaml — Regulatory & Compliance (EXAMPLE)
+# =============================================================================
+# Copy to .secops/compliance/requirements.yaml and fill in your requirements.
+# Schema Version: 1.0
+# =============================================================================
+
+schema_version: "1.0"
+
+data_residency:
+  primary_region: "<AZURE_REGION>"      # e.g., eastus2
+  allowed_regions:
+    - "<AZURE_REGION>"
+    # - "<SECONDARY_REGION>"
+  prohibited_regions: []
+  reason: "<RESIDENCY_POLICY_REASON>"   # e.g., "Corporate policy — US data residency"
+  constraints: []
+
+# List applicable regulatory frameworks. Remove or leave empty if none.
+regulatory_frameworks: []
+# Example:
+# - name: "HIPAA"
+#   description: "Health Insurance Portability and Accountability Act"
+#   impact:
+#     - "data-retention"
+#     - "breach-notification-60d"
+
+retention_requirements:
+  default:
+    interactive_days: 90
+    archive_days: 730
+    total_days: 820
+  overrides: []
+  agent_guidance:
+    - "Check retention before writing queries with timespan > 90 days"
+    - "Archive restore takes 1-5 minutes — factor into investigation time"
+    - "Basic tier tables cannot use join/summarize — use search operator instead"
