@@ -42,14 +42,22 @@ score = size_fit + shape_fit + resonance_fit + LRU
 
 ### Tiebreak & Fresh Install Behavior
 
-When multiple universes score within 10% of the top score (common on fresh installs where LRU is empty), the coordinator MUST either:
+When multiple universes score within 10% of the top score (common on fresh installs where LRU is empty), break the tie by preferring the universe with the highest capacity-fit, then alphabetically. **Always select ONE deterministic winner as the proposed default.** Do NOT proactively offer the user a menu of universes — the fast-accept path presents one universe. The runner-up is retained in memory only, surfaced via the "Change the vibe" follow-up branch if the user requests it.
 
-1. **Offer the user a choice** — present the top 3-5 scoring universes and let the user pick, OR
-2. **Randomize** — pick randomly from the tied candidates.
-
-**On fresh installs (empty `history.json`):** Since LRU provides no differentiation, ties are expected. Always offer the user a choice of 3-5 universes that fit the team size and project shape. Present them as themed options without revealing the full universe name mapping logic.
+**On fresh installs (empty `history.json`):** Since LRU provides no differentiation, ties are expected. Apply capacity-fit + alphabetical tiebreak to produce a single deterministic winner. Expose the runner-up only through the "Change the vibe" branch.
 
 **Never hard-code a default universe.** The `default_universe` field in `policy.json` is deprecated — if present, ignore it and use the scoring algorithm with tiebreak instead.
+
+### Custom-Universe Extension
+
+When a user selects a custom-researched universe via the "Change the vibe" path and it is NOT already in the allowlist:
+
+1. Add the universe name to `allowlist_universes` in `.squad/casting/policy.json`.
+2. Add a `universe_capacity` entry (estimate capacity from the universe's named character count; default to 10 if uncertain).
+3. Proceed with deterministic name allocation within the new universe.
+4. Overflow rules are unchanged.
+
+The allowlist is therefore a living list — the 16 default entries are the starting set, not a hard ceiling.
 
 ## Casting State File Schemas
 
