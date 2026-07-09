@@ -55,3 +55,32 @@ describe('install.sh shebang guard', () => {
     assert.equal(hasBom, false, 'install.sh must not have a UTF-8 BOM');
   });
 });
+
+describe('installer copilot CLI detection — no legacy gh-copilot extension (#17)', () => {
+  const psContent = readFileSync(resolve(root, 'install.ps1'), 'utf8');
+  const shContent = readFileSync(resolve(root, 'install.sh'), 'utf8');
+
+  it('install.ps1 does not reference the legacy gh-copilot extension', () => {
+    assert.doesNotMatch(psContent, /gh-copilot/, 'install.ps1 must not reference legacy gh-copilot extension');
+  });
+
+  it('install.ps1 does not invoke gh extension install github/gh-copilot', () => {
+    assert.doesNotMatch(psContent, /gh extension install github\/gh-copilot/, 'install.ps1 must not install the deprecated gh-copilot extension');
+  });
+
+  it('install.ps1 detects the standalone copilot binary', () => {
+    assert.match(psContent, /Get-Command copilot/, 'install.ps1 must detect standalone copilot via Get-Command copilot');
+  });
+
+  it('install.sh does not reference the legacy gh-copilot extension', () => {
+    assert.doesNotMatch(shContent, /gh-copilot/, 'install.sh must not reference legacy gh-copilot extension');
+  });
+
+  it('install.sh does not invoke gh extension install github/gh-copilot', () => {
+    assert.doesNotMatch(shContent, /gh extension install github\/gh-copilot/, 'install.sh must not install the deprecated gh-copilot extension');
+  });
+
+  it('install.sh detects the standalone copilot binary', () => {
+    assert.match(shContent, /command -v copilot/, 'install.sh must detect standalone copilot via command -v copilot');
+  });
+});

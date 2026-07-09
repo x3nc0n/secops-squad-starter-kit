@@ -235,7 +235,7 @@ function checkCopilotCli() {
   if (!version) {
     return {
       status: "fail",
-      message: "copilot CLI not found — install GitHub Copilot CLI from https://githubnext.com/projects/copilot-cli",
+      message: "copilot CLI not found — install GitHub Copilot CLI: npm install -g @github/copilot  (see https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli)",
     };
   }
   const vMatch = version.match(/(\d+[\d.]+)/);
