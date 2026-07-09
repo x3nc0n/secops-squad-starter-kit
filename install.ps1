@@ -1,20 +1,27 @@
-﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     secops-squad installer for Windows
 .DESCRIPTION
     Installs secops-squad -- AI SecOps team for Microsoft Security stack.
     Checks prerequisites, clones the repository, installs dependencies.
+
+    To override the install directory, set $env:SECOPS_INSTALL_DIR before piping:
+        $env:SECOPS_INSTALL_DIR = "C:\tools\secops-squad"
+        irm https://raw.githubusercontent.com/x3nc0n/secops-squad-starter-kit/main/install.ps1 | iex
 .EXAMPLE
+    irm https://raw.githubusercontent.com/x3nc0n/secops-squad-starter-kit/main/install.ps1 | iex
+.EXAMPLE
+    $env:SECOPS_INSTALL_DIR = "C:\tools\secops-squad"
     irm https://raw.githubusercontent.com/x3nc0n/secops-squad-starter-kit/main/install.ps1 | iex
 .EXAMPLE
     .\install.ps1
 #>
 
-[CmdletBinding()]
-param(
-    [string]$InstallDir = "$env:USERPROFILE\secops-squad"
-)
+if ($PSVersionTable.PSVersion.Major -lt 5) {
+    Write-Error "secops-squad requires PowerShell 5.1 or later."; return
+}
+
+$InstallDir = if ($env:SECOPS_INSTALL_DIR) { $env:SECOPS_INSTALL_DIR } else { "$env:USERPROFILE\secops-squad" }
 
 $ErrorActionPreference = "Stop"
 
@@ -229,7 +236,7 @@ function Install-SecOpsSquad {
 
     if (Test-Path $InstallDir) {
         Write-Host "Directory $InstallDir already exists." -ForegroundColor Yellow
-        Write-Host "Remove it first or choose a different location with -InstallDir." -ForegroundColor DarkGray
+        Write-Host "Remove it first or set `$env:SECOPS_INSTALL_DIR to a different location." -ForegroundColor DarkGray
         Write-Host ""
         exit 1
     }
