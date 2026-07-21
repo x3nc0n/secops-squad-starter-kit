@@ -1,6 +1,6 @@
 {
   "name": "@secops-squad/secops-squad-starter-kit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SecOps-focused AI team framework for Microsoft Security products",
   "main": "cli/index.js",
   "bin": {
