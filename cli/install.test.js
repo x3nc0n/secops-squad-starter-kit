@@ -69,7 +69,7 @@ describe('installer copilot CLI detection — no legacy gh-copilot extension (#1
   });
 
   it('install.ps1 detects the standalone copilot binary', () => {
-    assert.match(psContent, /Get-Command copilot/, 'install.ps1 must detect standalone copilot via Get-Command copilot');
+    assert.match(psContent, /Ensure-Command\s+"copilot"/, 'install.ps1 must detect standalone copilot via Ensure-Command "copilot"');
   });
 
   it('install.sh does not reference the legacy gh-copilot extension', () => {

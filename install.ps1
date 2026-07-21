@@ -202,17 +202,8 @@ function Install-SecOpsSquad {
     # 3. GitHub CLI (optional -- connect later during copilot session)
     $ghAvailable = Ensure-Command "gh" "GitHub CLI" "GitHub.cli" "https://cli.github.com" $false
 
-    # 4. GitHub Copilot CLI (standalone -- ships with GitHub Copilot, not a gh extension)
-    $copilotCmd = Get-Command copilot -ErrorAction SilentlyContinue
-    if ($copilotCmd) {
-        Write-Host "  [OK] GitHub Copilot CLI (copilot)" -ForegroundColor Green
-    } else {
-        Write-Host "  [INFO] GitHub Copilot CLI not found (optional)" -ForegroundColor Cyan
-        Write-Host "     The standalone copilot CLI ships with GitHub Copilot." -ForegroundColor DarkGray
-        Write-Host "     Install:  npm install -g @github/copilot" -ForegroundColor DarkGray
-        Write-Host "     Or:       winget install GitHub.Copilot" -ForegroundColor DarkGray
-        Write-Host "     Docs:     https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli" -ForegroundColor DarkGray
-    }
+    # 4. GitHub Copilot (includes the copilot command — CLI functionality is part of the app)
+    Ensure-Command "copilot" "GitHub Copilot" "GitHub.CopilotApp" "https://github.com/features/copilot" $false | Out-Null
 
     # 5. Azure CLI (optional)
     Ensure-Command "az" "Azure CLI" "Microsoft.AzureCLI" "https://aka.ms/installazurecliwindows" $false | Out-Null

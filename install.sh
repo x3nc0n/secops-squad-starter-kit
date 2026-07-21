@@ -85,15 +85,25 @@ main() {
   check_command "git" "Git" "https://git-scm.com" "true" || failed=1
   check_command "gh" "GitHub CLI" "https://cli.github.com" "false"
 
-  # GitHub Copilot CLI (standalone -- ships with GitHub Copilot, not a gh extension)
+  # GitHub Copilot (includes the copilot command — CLI functionality is part of the app)
   if command -v copilot &>/dev/null; then
-    echo -e "  ${GREEN}✅ GitHub Copilot CLI (copilot)${RESET}"
+    local version
+    version=$(copilot --version 2>&1 | head -1 || true)
+    echo -e "  ${GREEN}✅ GitHub Copilot: ${version}${RESET}"
   else
-    echo -e "  ${CYAN}ℹ️  GitHub Copilot CLI not found (optional)${RESET}"
-    echo -e "     ${DIM}The standalone copilot CLI ships with GitHub Copilot.${RESET}"
-    echo -e "     ${DIM}Install:  npm install -g @github/copilot${RESET}"
-    echo -e "     ${DIM}Or:       curl -fsSL https://gh.io/copilot-install | bash${RESET}"
-    echo -e "     ${DIM}Docs:     https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli${RESET}"
+    echo -e "  ${YELLOW}⚠️  GitHub Copilot (copilot) not found (optional)${RESET}"
+    if command -v npm &>/dev/null; then
+      echo -e "  ${CYAN}  Installing GitHub Copilot via npm...${RESET}"
+      if npm install -g @github/copilot --quiet 2>/dev/null; then
+        echo -e "  ${GREEN}✅ GitHub Copilot installed${RESET}"
+      else
+        echo -e "  ${YELLOW}⚠️  GitHub Copilot install failed (optional — install manually)${RESET}"
+        echo -e "     ${DIM}Install: https://github.com/features/copilot${RESET}"
+      fi
+    else
+      echo -e "  ${YELLOW}⚠️  GitHub Copilot is optional${RESET}"
+      echo -e "     ${DIM}Install: https://github.com/features/copilot${RESET}"
+    fi
   fi
 
   check_command "az" "Azure CLI" "https://aka.ms/installazurecli" "false"
